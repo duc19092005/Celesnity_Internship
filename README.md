@@ -139,4 +139,28 @@ To address the I/O bottleneck of continuous 30-second polling (`Auto-Sync`) acro
 👉 **[Read the Full In-Depth Benchmark Report & Detailed Trade-Offs Analysis](benchmark/README.md)**
 *(Includes raw measurement JSON datasets, methodology, Python visualization scripts, and reproducible Docker runners).*
 
+---
 
+## 🧪 Comprehensive 5-Phase Testing Strategy (30 Tests, 100% Pass)
+
+The platform is backed by a rigorous, automated testing suite adhering to **Rule 60** and **Rule 80**, covering every operational stage across 5 phases:
+
+| Phase | Test Scope & Invariants Covered | Test Count | Pass Rate |
+| :--- | :--- | :---: | :---: |
+| **Phase 1: Ingestion & Resilience** | Pagination loops, Malformed row isolation, 503 retry, Pre-flight ping, AES-256 secret masking | 8 Tests | 100% |
+| **Phase 2: Normalization & Deduplication** | UTC normalization, 0-quantity tie-breaker, Identical deduplication, Source authority hierarchy | 4 Tests | 100% |
+| **Phase 3: Production State Engine** | State precedence (COMPLETED > BLOCKED > IN_PROGRESS), Furthest station rule, Late event invariance, Dispatch lock | 8 Tests | 100% |
+| **Phase 4: Management Actions & Provenance** | Append-only audit trail (BLOCK, RESUME, ACKNOWLEDGE, NOTE), Deterministic 1 ➔ 6 station lineage order, Missing data detection | 4 Tests | 100% |
+| **Phase 5: E2E Workflow & Container Runner** | 3-source fixture ingestion, 3-line board generation, Date ISO UTC preservation, Docker Test Runner | 6 Tests | 100% |
+| **Total Automated Tests** | **Unit & E2E Suites** | **30 Tests** | **100% Pass** |
+
+### Run Tests:
+```bash
+# Run all tests locally via Jest:
+cd backend && npm test
+
+# Run isolated tests in Docker container:
+docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
+```
+
+👉 **[Read the Full 5-Phase Testing Strategy & Detailed Test Matrix Document](docs/en/testing-strategy.md)**

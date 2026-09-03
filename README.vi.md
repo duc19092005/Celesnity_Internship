@@ -136,4 +136,28 @@ docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-c
 👉 **[Xem Báo Cáo Đo Kiểm Hiệu Năng Chi Tiết & Bảng Phân Tích Đánh Đổi Toàn Diện](benchmark/README.vi.md)**
 *(Bao gồm tập dữ liệu JSON đo lường gốc, phương pháp luận, mã nguồn Python sinh biểu đồ và bộ Docker test runner).*
 
+---
 
+## 🧪 Chiến Lược Kiểm Thử 5 Giai Đoạn Toàn Diện (30 Tests, Pass 100%)
+
+Hệ thống được bảo vệ bởi bộ kiểm thử tự động toàn diện tuân thủ nghiêm ngặt **Rule 60** và **Rule 80**, kiểm soát từng công đoạn vận hành qua 5 giai đoạn:
+
+| Giai Đoạn | Phạm Vi Kiểm Thử & Các Bất Biến Nghiệp Vụ | Số Lượng Test | Tỷ Lệ Đạt |
+| :--- | :--- | :---: | :---: |
+| **Giai Đoạn 1: Thu Thập & Chịu Lỗi** | Chống lặp phân trang, cách ly dòng lỗi, retry 503, pre-flight ping, mã hóa AES-256 | 8 Tests | 100% |
+| **Giai Đoạn 2: Chuẩn Hóa & Khử Trùng Lặp** | Chuẩn hóa UTC, tie-breaker ưu tiên sản lượng > 0, khử trùng lặp, thứ bậc thẩm quyền nguồn | 4 Tests | 100% |
+| **Giai Đoạn 3: Trạng Thái Dây Chuyền 6 Trạm** | Ma trận ưu tiên (COMPLETED > BLOCKED > IN_PROGRESS), trạm xa nhất, không lùi trạm, khóa xuất xưởng | 8 Tests | 100% |
+| **Giai Đoạn 4: Điều Phối & Truy Vết Nguồn Gốc** | Nhật ký Append-only (BLOCK, RESUME, ACKNOWLEDGE, NOTE), sắp xếp tất định 1 ➔ 6, phát hiện thiếu trạm | 4 Tests | 100% |
+| **Giai Đoạn 5: Luồng Đầu Cuối & Docker Test** | Cào 3 nguồn dữ liệu, sinh bảng 3 dây chuyền, chuẩn hóa ngày tháng UTC, Docker Test Runner | 6 Tests | 100% |
+| **Tổng Số Test Tự Động** | **Bộ Unit & E2E Tests** | **30 Tests** | **100% Pass** |
+
+### Cách Thực Thi Kiểm Thử:
+```bash
+# Chạy toàn bộ test tại máy cục bộ qua Jest:
+cd backend && npm test
+
+# Chạy kiểm thử cô lập trong Docker Test Runner:
+docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
+```
+
+👉 **[Xem Chi Tiết Tài Liệu Chiến Lược Kiểm Thử & Ma Trận Test Cases](docs/vi/testing-strategy.md)**

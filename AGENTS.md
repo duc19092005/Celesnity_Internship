@@ -11,3 +11,4 @@ Trước khi đọc hoặc sửa đổi bất kỳ tệp nguồn nào, bạn **B
 6. [.agents/rules/50-security.md](file:///d:/Personal%20Datas/Internship/Celesnity/.agents/rules/50-security.md): Quy tắc Bảo mật Secrets.
 7. [.agents/rules/60-testing.md](file:///d:/Personal%20Datas/Internship/Celesnity/.agents/rules/60-testing.md): Chuẩn Kiểm thử & Docker Test Runner.
 8. [.agents/rules/70-documentation.md](file:///d:/Personal%20Datas/Internship/Celesnity/.agents/rules/70-documentation.md): Chuẩn Tài liệu Đa ngôn ngữ.
+9. [.agents/rules/80-testing-documentation-sync.md](file:///d:/Personal%20Datas/Internship/Celesnity/.agents/rules/80-testing-documentation-sync.md): Đồng bộ Kiểm thử & Tài liệu Song ngữ.
