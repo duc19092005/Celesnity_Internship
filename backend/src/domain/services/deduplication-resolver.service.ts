@@ -83,6 +83,13 @@ export class DeduplicationResolver {
         return bTime - aTime;
       }
 
+      // 4. Prefer actual observed quantity > 0 over default placeholder 0
+      const aHasQty = a.quantity > 0 ? 1 : 0;
+      const bHasQty = b.quantity > 0 ? 1 : 0;
+      if (aHasQty !== bHasQty) {
+        return bHasQty - aHasQty;
+      }
+
       return a.id.localeCompare(b.id);
     });
 
