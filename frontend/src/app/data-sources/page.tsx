@@ -410,7 +410,7 @@ export default function DataSourcesPage() {
       {/* 1. Header & Primary Actions */}
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200/80 dark:border-slate-800">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-md shadow-blue-500/20">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-600 text-white shadow-md shadow-blue-500/20">
             <Database className="h-5 w-5" />
           </div>
           <div>
@@ -440,7 +440,7 @@ export default function DataSourcesPage() {
           </button>
           <button
             onClick={() => setRegisterModalOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-md shadow-blue-500/20 transition-all active:scale-95"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 px-4 py-2 text-xs font-bold text-white shadow-md shadow-blue-500/20 transition-all active:scale-95"
           >
             <Plus className="h-4 w-4" />
             <span>{t('registerSource')}</span>
@@ -496,7 +496,7 @@ export default function DataSourcesPage() {
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               {locale === 'vi' ? 'Tổng Đợt Thu Thập' : 'Collection Runs'}
             </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
               <Activity className="h-4 w-4" />
             </div>
           </div>
@@ -663,7 +663,7 @@ export default function DataSourcesPage() {
                       className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors disabled:opacity-60"
                     >
                       {isDiscovering ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-600" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
                       ) : (
                         <Layers className="h-3.5 w-3.5 text-slate-400" />
                       )}

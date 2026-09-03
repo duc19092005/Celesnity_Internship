@@ -136,7 +136,7 @@ export const Sidebar: React.FC = () => {
               title={theme === 'dark' ? t('darkMode') : t('lightMode')}
             >
               {theme === 'dark' ? (
-                <Moon className="h-4 w-4 text-indigo-400 shrink-0" />
+                <Moon className="h-4 w-4 text-sky-400 shrink-0" />
               ) : (
                 <Sun className="h-4 w-4 text-amber-500 shrink-0" />
               )}
@@ -180,7 +180,7 @@ export const Sidebar: React.FC = () => {
             >
               <span>{theme === 'dark' ? t('darkMode') : t('lightMode')}</span>
               {theme === 'dark' ? (
-                <Moon className="h-4 w-4 text-indigo-400 shrink-0" />
+                <Moon className="h-4 w-4 text-sky-400 shrink-0" />
               ) : (
                 <Sun className="h-4 w-4 text-amber-500 shrink-0" />
               )}

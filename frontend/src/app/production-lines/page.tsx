@@ -844,7 +844,7 @@ export default function ProductionLinesPage() {
                                   </span>
                                 )}
                                 {hasMissing && (
-                                  <span className="inline-flex items-center gap-1 rounded bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800/60 px-1.5 py-0.5 text-[9px] font-semibold text-purple-700 dark:text-purple-300">
+                                  <span className="inline-flex items-center gap-1 rounded bg-cyan-50 dark:bg-cyan-950/50 border border-cyan-200 dark:border-cyan-800/60 px-1.5 py-0.5 text-[9px] font-semibold text-cyan-700 dark:text-cyan-300">
                                     <AlertOctagon className="h-2.5 w-2.5" />
                                     {locale === 'vi' ? 'Nhảy trạm' : 'Missing Prev'}
                                   </span>
