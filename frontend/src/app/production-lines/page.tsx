@@ -78,17 +78,39 @@ export default function ProductionLinesPage() {
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
 
   const safeFormatDate = (dateVal: any): string => {
-    if (!dateVal) return locale === 'vi' ? 'Vừa xong' : 'Just now';
+    if (!dateVal || (typeof dateVal === 'object' && Object.keys(dateVal).length === 0)) {
+      return locale === 'vi' ? 'Vừa xong' : 'Just now';
+    }
     const d = new Date(dateVal);
     if (isNaN(d.getTime())) return locale === 'vi' ? 'Vừa xong' : 'Just now';
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString();
+    const time = d.toLocaleTimeString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const date = d.toLocaleDateString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    return `${time} (${date})`;
   };
 
   const formatCardTime = (dateVal: any): string => {
-    if (!dateVal) return locale === 'vi' ? 'Vừa xong' : 'Just now';
+    if (!dateVal || (typeof dateVal === 'object' && Object.keys(dateVal).length === 0)) {
+      return locale === 'vi' ? 'Vừa xong' : 'Just now';
+    }
     const d = new Date(dateVal);
     if (isNaN(d.getTime())) return locale === 'vi' ? 'Vừa xong' : 'Just now';
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
   };
 
   const stationsOrder: StationMeta[] = [

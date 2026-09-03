@@ -114,7 +114,7 @@ export class IngestionPipelineService {
       }
 
       const quantity = Number(raw.quantity ?? raw.pieces_count ?? raw.pieces ?? raw.completed_quantity ?? 0);
-      const occurredAt = new Date(raw.eventTime || raw.event_time || raw.deliveryTime || raw.delivery_time || raw.created_at || raw.recorded_at || Date.now());
+      const occurredAt = this.parseToUtc(raw.eventTime || raw.event_time || raw.deliveryTime || raw.delivery_time || raw.created_at || raw.recorded_at || Date.now());
       const qualityStatus = (String(raw.qualityStatus || raw.quality_status || 'PASS').toUpperCase() === 'FAIL') ? QualityStatus.FAIL : QualityStatus.PASS;
       const recordId = `norm-${run.id}-${i + 1}`;
 
@@ -312,5 +312,16 @@ export class IngestionPipelineService {
     await this.sourceRepo.save(source);
 
     return run;
+  }
+
+  private parseToUtc(dateInput: any): Date {
+    if (!dateInput) return new Date();
+    if (dateInput instanceof Date) return dateInput;
+    const str = String(dateInput).trim();
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(str)) {
+      return new Date(str.replace(' ', 'T') + '+07:00');
+    }
+    const parsed = new Date(str);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
   }
 }

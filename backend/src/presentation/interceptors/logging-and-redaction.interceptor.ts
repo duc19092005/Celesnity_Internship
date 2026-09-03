@@ -11,6 +11,9 @@ export class LoggingAndRedactionInterceptor implements NestInterceptor {
 
   private redactSensitiveData(obj: any): any {
     if (obj === null || obj === undefined) return obj;
+    if (obj instanceof Date) {
+      return obj.toISOString();
+    }
     if (Array.isArray(obj)) {
       return obj.map((item) => this.redactSensitiveData(item));
     }

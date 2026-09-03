@@ -80,24 +80,50 @@ export default function DataSourcesPage() {
   });
 
   const formatTimeOnly = (dateVal: any): string => {
-    if (!dateVal) return '—';
+    if (!dateVal || (typeof dateVal === 'object' && Object.keys(dateVal).length === 0)) return '—';
     const d = new Date(dateVal);
     if (isNaN(d.getTime())) return '—';
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    return d.toLocaleTimeString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
   };
 
   const formatDateOnly = (dateVal: any): string => {
-    if (!dateVal) return '—';
+    if (!dateVal || (typeof dateVal === 'object' && Object.keys(dateVal).length === 0)) return '—';
     const d = new Date(dateVal);
     if (isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString();
+    return d.toLocaleDateString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
   };
 
   const safeFormatDate = (dateVal: any): string => {
-    if (!dateVal) return locale === 'vi' ? 'Vừa xong' : 'Just now';
+    if (!dateVal || (typeof dateVal === 'object' && Object.keys(dateVal).length === 0)) {
+      return locale === 'vi' ? 'Chưa ghi nhận' : 'Not recorded';
+    }
     const d = new Date(dateVal);
-    if (isNaN(d.getTime())) return locale === 'vi' ? 'Vừa xong' : 'Just now';
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' ' + d.toLocaleDateString();
+    if (isNaN(d.getTime())) return locale === 'vi' ? 'Chưa ghi nhận' : 'Not recorded';
+    const time = d.toLocaleTimeString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const date = d.toLocaleDateString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    return `${time} (${date})`;
   };
 
   const loadData = async () => {
@@ -589,6 +615,28 @@ export default function DataSourcesPage() {
                         <span>{source.selectedSchema.selectedTable || 'Bảng mặc định'}</span>
                       </span>
                     )}
+                  </div>
+
+                  {/* Source Timestamps Strip (UTC+7) */}
+                  <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-2.5 text-[11px] font-mono space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-sans text-[10px] flex items-center gap-1">
+                        <Clock className="h-3 w-3 text-slate-400" />
+                        <span>{locale === 'vi' ? 'Cào gần nhất:' : 'Last run:'}</span>
+                      </span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        {safeFormatDate(source.lastRunAt)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-sans text-[10px] flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3 text-slate-400" />
+                        <span>{locale === 'vi' ? 'Xác thực lúc:' : 'Verified at:'}</span>
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {safeFormatDate(source.lastVerifiedAt || source.createdAt)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
