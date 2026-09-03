@@ -8,6 +8,10 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Clock,
   Database,
   ExternalLink,
@@ -45,9 +49,11 @@ export default function DataSourcesPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Filters & Search
+  // Filters, Search & Pagination
   const [runSearchQuery, setRunSearchQuery] = useState('');
   const [runStatusFilter, setRunStatusFilter] = useState<'ALL' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'FAILED'>('ALL');
+  const [runPage, setRunPage] = useState<number>(1);
+  const [runPageSize, setRunPageSize] = useState<number>(10);
 
   // Modals state
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
@@ -72,6 +78,20 @@ export default function DataSourcesPage() {
     baseUrl: 'http://localhost:4000/fixtures/application-api',
     maxPages: 5,
   });
+
+  const formatTimeOnly = (dateVal: any): string => {
+    if (!dateVal) return '—';
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  };
+
+  const formatDateOnly = (dateVal: any): string => {
+    if (!dateVal) return '—';
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString();
+  };
 
   const safeFormatDate = (dateVal: any): string => {
     if (!dateVal) return locale === 'vi' ? 'Vừa xong' : 'Just now';
@@ -347,6 +367,17 @@ export default function DataSourcesPage() {
       return true;
     });
   }, [runs, runSearchQuery, runStatusFilter, sources]);
+
+  // Reset pagination to page 1 whenever filters change
+  useEffect(() => {
+    setRunPage(1);
+  }, [runSearchQuery, runStatusFilter, runPageSize]);
+
+  const totalRunPages = Math.max(1, Math.ceil(filteredRuns.length / runPageSize));
+  const paginatedRuns = useMemo(() => {
+    const startIndex = (runPage - 1) * runPageSize;
+    return filteredRuns.slice(startIndex, startIndex + runPageSize);
+  }, [filteredRuns, runPage, runPageSize]);
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
@@ -705,17 +736,17 @@ export default function DataSourcesPage() {
                 <th className="py-2.5 px-3">Mã Đợt Chạy</th>
                 <th className="py-2.5 px-3">Nguồn Dữ Liệu</th>
                 <th className="py-2.5 px-3">{t('status')}</th>
-                <th className="py-2.5 px-3">Thời Gian</th>
+                <th className="py-2.5 px-3">Bắt Đầu ➔ Kết Thúc</th>
+                <th className="py-2.5 px-3 text-center">Thời Lượng</th>
                 <th className="py-2.5 px-3 text-center">Quan Sát</th>
                 <th className="py-2.5 px-3 text-center">Hợp Lệ</th>
                 <th className="py-2.5 px-3 text-center">Trùng Lặp</th>
                 <th className="py-2.5 px-3 text-center">Dòng Lỗi</th>
-                <th className="py-2.5 px-3">Thời Điểm</th>
-                <th className="py-2.5 px-3 text-right">Hành Động</th>
+                <th className="py-2.5 px-3 text-right">Xem Trước</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredRuns.length === 0 ? (
+              {paginatedRuns.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-10 text-center text-slate-400 font-medium">
                     {locale === 'vi'
@@ -724,7 +755,7 @@ export default function DataSourcesPage() {
                   </td>
                 </tr>
               ) : (
-                filteredRuns.map((run) => (
+                paginatedRuns.map((run) => (
                   <tr key={run.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="py-2.5 px-3 font-mono font-bold text-slate-800 dark:text-slate-200">{run.id}</td>
                     <td className="py-2.5 px-3 font-semibold text-slate-700 dark:text-slate-300">
@@ -743,7 +774,32 @@ export default function DataSourcesPage() {
                         {run.status}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-500">{run.durationMs}ms</td>
+                    <td className="py-2.5 px-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 font-mono text-xs text-slate-800 dark:text-slate-200">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                        <span className="text-[10px] text-slate-400 font-sans">{locale === 'vi' ? 'Bắt đầu:' : 'Start:'}</span>
+                        <strong className="font-semibold">{formatTimeOnly(run.startedAt || run.createdAt)}</strong>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 mt-0.5">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        <span className="text-[10px] text-slate-400 font-sans">{locale === 'vi' ? 'Kết thúc:' : 'End:'}</span>
+                        <span>
+                          {run.finishedAt
+                            ? formatTimeOnly(run.finishedAt)
+                            : (run.durationMs
+                              ? formatTimeOnly(new Date(new Date(run.startedAt || run.createdAt).getTime() + run.durationMs))
+                              : formatTimeOnly(run.startedAt || run.createdAt)
+                            )}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-sans">({formatDateOnly(run.startedAt || run.createdAt)})</span>
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-mono text-xs whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-slate-700 dark:text-slate-300 font-semibold text-[11px]">
+                        <Clock className="h-3 w-3 text-slate-400" />
+                        <span>{run.durationMs ?? 0}ms</span>
+                      </span>
+                    </td>
                     <td className="py-2.5 px-3 text-center font-bold text-slate-900 dark:text-white">{run.observedCount}</td>
                     <td className="py-2.5 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400">{run.acceptedCount}</td>
                     <td className="py-2.5 px-3 text-center font-medium text-amber-600 dark:text-amber-400">{run.duplicateCount}</td>
@@ -758,9 +814,6 @@ export default function DataSourcesPage() {
                       ) : (
                         <span className="text-slate-400">0</span>
                       )}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-500 text-[11px]">
-                      {safeFormatDate(run.startedAt || run.createdAt)}
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       <button
@@ -777,6 +830,73 @@ export default function DataSourcesPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer Controls */}
+        {filteredRuns.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
+            <div className="flex items-center gap-2">
+              <span>{locale === 'vi' ? 'Hiển thị' : 'Showing'}</span>
+              <select
+                value={runPageSize}
+                onChange={(e) => {
+                  setRunPageSize(Number(e.target.value));
+                  setRunPage(1);
+                }}
+                className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-blue-600 font-semibold cursor-pointer"
+              >
+                <option value={10}>10 đợt/trang</option>
+                <option value={20}>20 đợt/trang</option>
+                <option value={50}>50 đợt/trang</option>
+                <option value={100}>100 đợt/trang</option>
+              </select>
+              <span>
+                {locale === 'vi'
+                  ? `(Tổng cộng ${filteredRuns.length} đợt thu thập)`
+                  : `(Total ${filteredRuns.length} runs)`}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setRunPage(1)}
+                disabled={runPage === 1}
+                className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-400"
+                title={locale === 'vi' ? 'Trang đầu tiên' : 'First page'}
+              >
+                <ChevronsLeft className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setRunPage((p) => Math.max(1, p - 1))}
+                disabled={runPage === 1}
+                className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-400"
+                title={locale === 'vi' ? 'Trang trước' : 'Previous page'}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+
+              <span className="px-3 font-semibold text-slate-800 dark:text-slate-200 font-mono">
+                {locale === 'vi' ? `Trang ${runPage} / ${totalRunPages}` : `Page ${runPage} of ${totalRunPages}`}
+              </span>
+
+              <button
+                onClick={() => setRunPage((p) => Math.min(totalRunPages, p + 1))}
+                disabled={runPage === totalRunPages}
+                className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-400"
+                title={locale === 'vi' ? 'Trang tiếp theo' : 'Next page'}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setRunPage(totalRunPages)}
+                disabled={runPage === totalRunPages}
+                className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-400"
+                title={locale === 'vi' ? 'Trang cuối cùng' : 'Last page'}
+              >
+                <ChevronsRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* MODAL 1: Register Source */}
