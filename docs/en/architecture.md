@@ -8,61 +8,66 @@ The platform is designed following **Clean Architecture (Domain-Driven Design)**
 
 ```mermaid
 flowchart TD
-    subgraph Sources [Local Source Fixtures]
+    subgraph Sources ["Local Source Fixtures"]
         S1["🌐 Supplier Portal HTML (Station 1: RECEIVING)"]
-        S2["🗄️ PostgreSQL Production DB (Stations 2-5: SORTING -> FOLDING)"]
+        S2["🗄️ PostgreSQL Production DB (Stations 2-5: SORTING - FOLDING)"]
         S3["🔌 Application Core REST API (Station 6: DISPATCH & Work Orders)"]
         S4["📡 Mosquitto MQTT (Optional: Telemetry)"]
     end
 
-    subgraph Backend [Backend NestJS 11 - Clean Architecture]
-        subgraph Presentation [Presentation Layer]
-            C1[SourcesController]
-            C2[ProductionLinesController]
-            C3[BatchesController]
-            C4[FixturesController]
+    subgraph Backend ["Backend NestJS 11 - Clean Architecture"]
+        subgraph Presentation ["Presentation Layer"]
+            C1["SourcesController"]
+            C2["ProductionLinesController"]
+            C3["BatchesController"]
+            C4["FixturesController"]
         end
 
-        subgraph Application [Application Layer]
-            UC1[Source UseCases]
-            UC2[RunCollectionUseCase]
-            UC3[IngestionPipelineService]
-            UC4[GetProductionLinesUseCase]
-            UC5[ManagementAction UseCases]
+        subgraph Application ["Application Layer"]
+            UC1["Source UseCases"]
+            UC2["RunCollectionUseCase"]
+            UC3["IngestionPipelineService"]
+            UC4["GetProductionLinesUseCase"]
+            UC5["ManagementAction UseCases"]
         end
 
-        subgraph Domain [Domain Layer - Pure TypeScript]
-            D1[Entities: Source, Batch, CanonicalEvent...]
-            D2[ProductionStateEvaluator Service]
-            D3[DeduplicationResolver Service]
-            D4[Enums & Domain Exceptions]
+        subgraph Domain ["Domain Layer - Pure TypeScript"]
+            D1["Entities: Source, Batch, CanonicalEvent..."]
+            D2["ProductionStateEvaluator Service"]
+            D3["DeduplicationResolver Service"]
+            D4["Enums & Domain Exceptions"]
         end
 
-        subgraph Infrastructure [Infrastructure Layer]
-            I1[TypeORM Repositories]
-            I2[Collector Adapters: Cheerio, Postgres, Axios, MQTT]
-            I3[AES-256-GCM Encryption Service]
-            I4[Auto-Sync Task Scheduler]
+        subgraph Infrastructure ["Infrastructure Layer"]
+            I1["TypeORM Repositories"]
+            I2["Collector Adapters: Cheerio, Postgres, Axios, MQTT"]
+            I3["AES-256-GCM Encryption Service"]
+            I4["Auto-Sync Task Scheduler"]
         end
     end
 
-    subgraph PlatformDB [PostgreSQL Platform Database]
-        DB1[(sources, collection_runs, source_observations)]
-        DB2[(normalized_records, canonical_events)]
-        DB3[(batches, work_orders, management_events)]
+    subgraph PlatformDB ["PostgreSQL Platform Database"]
+        DB1[("sources, collection_runs, source_observations")]
+        DB2[("normalized_records, canonical_events")]
+        DB3[("batches, work_orders, management_events")]
     end
 
-    subgraph Frontend [Frontend Next.js 16 / React 19]
+    subgraph Frontend ["Frontend Next.js 16 / React 19"]
         UI1["🖥️ Data Sources Management (/data-sources)"]
         UI2["🏭 Production Lines 6-Station Board (/production-lines)"]
-        UI3["🗂️ Collapsible Sidebar + Dark/Light Theme + i18n (VI/EN)"]
+        UI3["🗂️ Collapsible Sidebar + Dark/Light Theme + i18n"]
     end
 
-    Sources --> I2
+    S1 --> I2
+    S2 --> I2
+    S3 --> I2
+    S4 --> I2
     I2 --> UC3
     UC3 --> D3
     D3 --> I1
-    I1 --> PlatformDB
+    I1 --> DB1
+    I1 --> DB2
+    I1 --> DB3
     Presentation --> Application
     Application --> Domain
     Infrastructure --> Application
