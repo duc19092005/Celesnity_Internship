@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir matplotlib numpy
+
+COPY . /app/backend/benchmark
+
+CMD ["python", "/app/backend/benchmark/generate_chart.py"]

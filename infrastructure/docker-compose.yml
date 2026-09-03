@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  platform-db:
+    image: postgres:16-alpine
+    container_name: celesnity-platform-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: platform_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - platform-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d platform_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  production-db:
+    image: postgres:16-alpine
+    container_name: celesnity-production-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: production_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./postgres/production/001-production-fixture.sql:/docker-entrypoint-initdb.d/001-production-fixture.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d production_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    container_name: celesnity-backend
+    environment:
+      PORT: 4000
+      NODE_ENV: development
+      PLATFORM_DB_HOST: platform-db
+      PLATFORM_DB_PORT: 5432
+      PLATFORM_DB_USER: postgres
+      PLATFORM_DB_PASSWORD: postgres
+      PLATFORM_DB_NAME: platform_db
+      PRODUCTION_DB_HOST: production-db
+      PRODUCTION_DB_PORT: 5432
+      PRODUCTION_DB_USER: postgres
+      PRODUCTION_DB_PASSWORD: postgres
+      PRODUCTION_DB_NAME: production_db
+      SOURCE_SECRET_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+      MQTT_ENABLED: "false"
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+    ports:
+      - "4000:4000"
+    volumes:
+      - ../backend/src:/app/src
+      - ../benchmark:/app/benchmark
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      production-db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile.dev
+    container_name: celesnity-frontend
+    environment:
+      PORT: 3000
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../frontend/src:/app/src
+      - ../frontend/public:/app/public
+    depends_on:
+      - backend
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: celesnity-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    profiles:
+      - mqtt
+
+volumes:
+  platform-data:

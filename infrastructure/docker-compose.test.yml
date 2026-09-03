@@ -1,0 +1,62 @@
+version: '3.8'
+
+# Test runner compose file: Runs ONLY DBs + Backend Tests (NO frontend, NO mqtt by default)
+services:
+  platform-test-db:
+    image: postgres:16-alpine
+    container_name: celesnity-platform-test-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: platform_db
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d platform_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  production-test-db:
+    image: postgres:16-alpine
+    container_name: celesnity-production-test-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: production_db
+    volumes:
+      - ./postgres/production/001-production-fixture.sql:/docker-entrypoint-initdb.d/001-production-fixture.sql
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d production_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  backend-test:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    container_name: celesnity-backend-test
+    environment:
+      NODE_ENV: test
+      PORT: 4001
+      PLATFORM_DB_HOST: platform-test-db
+      PLATFORM_DB_PORT: 5432
+      PLATFORM_DB_USER: postgres
+      PLATFORM_DB_PASSWORD: postgres
+      PLATFORM_DB_NAME: platform_db
+      PRODUCTION_DB_HOST: production-test-db
+      PRODUCTION_DB_PORT: 5432
+      PRODUCTION_DB_USER: postgres
+      PRODUCTION_DB_PASSWORD: postgres
+      PRODUCTION_DB_NAME: production_db
+      SOURCE_SECRET_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+      MQTT_ENABLED: "false"
+    command: npm run test
+    depends_on:
+      platform-test-db:
+        condition: service_healthy
+      production-test-db:
+        condition: service_healthy

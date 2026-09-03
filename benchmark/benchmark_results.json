@@ -1,0 +1,92 @@
+[
+  {
+    "approach": "128-Bit In-Memory Fingerprint",
+    "operations": 1000,
+    "totalDurationMs": 12.36,
+    "throughputOpsPerSec": 80887,
+    "avgLatencyUs": 12.363,
+    "p95LatencyUs": 24.568,
+    "falsePositiveRatePct": 0,
+    "memoryUsageKb": 418.7
+  },
+  {
+    "approach": "Bloom Filter (k=7)",
+    "operations": 1000,
+    "totalDurationMs": 3.39,
+    "throughputOpsPerSec": 294858,
+    "avgLatencyUs": 3.391,
+    "p95LatencyUs": 3.697,
+    "falsePositiveRatePct": 0.2,
+    "memoryUsageKb": 1.2
+  },
+  {
+    "approach": "Direct PostgreSQL Query",
+    "operations": 1000,
+    "totalDurationMs": 9615.86,
+    "throughputOpsPerSec": 104,
+    "avgLatencyUs": 9615.86,
+    "p95LatencyUs": 13619.384,
+    "falsePositiveRatePct": 0,
+    "memoryUsageKb": 12000
+  },
+  {
+    "approach": "128-Bit In-Memory Fingerprint",
+    "operations": 10000,
+    "totalDurationMs": 27.36,
+    "throughputOpsPerSec": 365490,
+    "avgLatencyUs": 2.736,
+    "p95LatencyUs": 4.038,
+    "falsePositiveRatePct": 0,
+    "memoryUsageKb": 16
+  },
+  {
+    "approach": "Bloom Filter (k=7)",
+    "operations": 10000,
+    "totalDurationMs": 8.92,
+    "throughputOpsPerSec": 1121506,
+    "avgLatencyUs": 0.892,
+    "p95LatencyUs": 1.983,
+    "falsePositiveRatePct": 0.04,
+    "memoryUsageKb": 11.7
+  },
+  {
+    "approach": "Direct PostgreSQL Query",
+    "operations": 10000,
+    "totalDurationMs": 103429.66,
+    "throughputOpsPerSec": 97,
+    "avgLatencyUs": 10342.966,
+    "p95LatencyUs": 15185.474,
+    "falsePositiveRatePct": 0,
+    "memoryUsageKb": 12000
+  },
+  {
+    "approach": "128-Bit In-Memory Fingerprint",
+    "operations": 50000,
+    "totalDurationMs": 209.12,
+    "throughputOpsPerSec": 239102,
+    "avgLatencyUs": 4.182,
+    "p95LatencyUs": 6.142,
+    "falsePositiveRatePct": 0,
+    "memoryUsageKb": 6894.6
+  },
+  {
+    "approach": "Bloom Filter (k=7)",
+    "operations": 50000,
+    "totalDurationMs": 26.06,
+    "throughputOpsPerSec": 1918996,
+    "avgLatencyUs": 0.521,
+    "p95LatencyUs": 0.36,
+    "falsePositiveRatePct": 0.03,
+    "memoryUsageKb": 58.5
+  },
+  {
+    "approach": "Direct PostgreSQL Query",
+    "operations": 50000,
+    "totalDurationMs": 437025.81,
+    "throughputOpsPerSec": 114,
+    "avgLatencyUs": 8740.516,
+    "p95LatencyUs": 11241.098,
+    "falsePositiveRatePct": 0,
+    "memoryUsageKb": 12000
+  }
+]
