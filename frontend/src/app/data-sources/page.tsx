@@ -175,7 +175,7 @@ export default function DataSourcesPage() {
     try {
       // Step 1: Pre-flight connection check before scraping
       const ping = await SourcesApi.test(source.id);
-      if (!ping.success) {
+      if (!ping.connected) {
         toast.error(
           locale === 'vi' ? `Lỗi kết nối nguồn: ${source.name}` : `Connection failed: ${source.name}`,
           {
@@ -193,7 +193,7 @@ export default function DataSourcesPage() {
         toast.success(
           locale === 'vi' ? `Thu thập hoàn tất: ${source.name}` : `Ingestion completed: ${source.name}`,
           {
-            description: `Kết nối tốt (${ping.durationMs}ms) • ${run.durationMs}ms cào • ${run.acceptedCount} hợp lệ / ${run.observedCount} quan sát${run.errorCount > 0 ? ` • ${run.errorCount} lỗi cách ly` : ''}`,
+            description: `Kết nối tốt (${ping.latencyMs}ms) • ${run.durationMs}ms cào • ${run.acceptedCount} hợp lệ / ${run.observedCount} quan sát${run.errorCount > 0 ? ` • ${run.errorCount} lỗi cách ly` : ''}`,
             action: {
               label: locale === 'vi' ? 'Xem trước' : 'Preview',
               onClick: () => handleOpenPreview(run.id),
@@ -270,9 +270,9 @@ export default function DataSourcesPage() {
       let isVerified = false;
       try {
         const testRes = await SourcesApi.test(created.id);
-        if (testRes.success) {
+        if (testRes.connected) {
           isVerified = true;
-          pingMs = testRes.durationMs;
+          pingMs = testRes.latencyMs || 0;
         }
       } catch (e) {}
 
