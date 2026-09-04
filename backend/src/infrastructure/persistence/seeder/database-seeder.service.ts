@@ -2,7 +2,7 @@ import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SourceOrmEntity } from '../entities/source.orm-entity';
-import { BatchOrmEntity, SystemSettingsOrmEntity, WorkOrderOrmEntity } from '../entities/all.orm-entities';
+import { SystemSettingsOrmEntity } from '../entities/all.orm-entities';
 import { SourceStatus, SourceType } from '../../../domain/enums/common.enums';
 import { Aes256EncryptionService } from '../../crypto/aes256-encryption.service';
 
@@ -11,10 +11,6 @@ export class DatabaseSeederService implements OnApplicationBootstrap {
   constructor(
     @InjectRepository(SourceOrmEntity)
     private readonly sourceRepo: Repository<SourceOrmEntity>,
-    @InjectRepository(WorkOrderOrmEntity)
-    private readonly workOrderRepo: Repository<WorkOrderOrmEntity>,
-    @InjectRepository(BatchOrmEntity)
-    private readonly batchRepo: Repository<BatchOrmEntity>,
     @InjectRepository(SystemSettingsOrmEntity)
     private readonly settingsRepo: Repository<SystemSettingsOrmEntity>,
   ) {}
@@ -38,112 +34,9 @@ export class DatabaseSeederService implements OnApplicationBootstrap {
       });
     }
 
-    // 2. Seed Work Orders
-    const existingWo = await this.workOrderRepo.count();
-    if (existingWo === 0) {
-      await this.workOrderRepo.save([
-        {
-          workOrderId: 'WO-1001',
-          organizationId: orgId,
-          customerName: 'InterContinental Hotel Landmark 72',
-          targetQuantity: 200,
-          plannedStartDate: new Date(Date.now() - 2 * 3600 * 1000),
-          plannedEndDate: new Date(Date.now() + 6 * 3600 * 1000),
-          status: 'IN_PROGRESS',
-        },
-        {
-          workOrderId: 'WO-1002',
-          organizationId: orgId,
-          customerName: 'JW Marriott Hotel Hanoi',
-          targetQuantity: 350,
-          plannedStartDate: new Date(Date.now() - 3 * 3600 * 1000),
-          plannedEndDate: new Date(Date.now() + 5 * 3600 * 1000),
-          status: 'IN_PROGRESS',
-        },
-        {
-          workOrderId: 'WO-1003',
-          organizationId: orgId,
-          customerName: 'Lotte Hotel Hanoi',
-          targetQuantity: 150,
-          plannedStartDate: new Date(Date.now() - 1 * 3600 * 1000),
-          plannedEndDate: new Date(Date.now() + 8 * 3600 * 1000),
-          status: 'PLANNED',
-        },
-      ]);
-    }
-
-    // 3. Seed Batches mapped to Work Orders & Lines
-    const existingBatches = await this.batchRepo.count();
-    if (existingBatches === 0) {
-      await this.batchRepo.save([
-        {
-          batchId: 'BATCH-001',
-          organizationId: orgId,
-          workOrderId: 'WO-1001',
-          lineId: 'LINE-A',
-          currentStation: null,
-          completedQuantity: 0,
-          status: 'PLANNED',
-          indicators: { isStale: false, isBlocked: false, hasMissingData: false, hasQualityWarning: false },
-          acknowledgedExceptions: [],
-        },
-        {
-          batchId: 'BATCH-002',
-          organizationId: orgId,
-          workOrderId: 'WO-1001',
-          lineId: 'LINE-A',
-          currentStation: null,
-          completedQuantity: 0,
-          status: 'PLANNED',
-          indicators: { isStale: false, isBlocked: false, hasMissingData: false, hasQualityWarning: false },
-          acknowledgedExceptions: [],
-        },
-        {
-          batchId: 'BATCH-003',
-          organizationId: orgId,
-          workOrderId: 'WO-1002',
-          lineId: 'LINE-B',
-          currentStation: null,
-          completedQuantity: 0,
-          status: 'PLANNED',
-          indicators: { isStale: false, isBlocked: false, hasMissingData: false, hasQualityWarning: false },
-          acknowledgedExceptions: [],
-        },
-        {
-          batchId: 'BATCH-004',
-          organizationId: orgId,
-          workOrderId: 'WO-1002',
-          lineId: 'LINE-B',
-          currentStation: null,
-          completedQuantity: 0,
-          status: 'PLANNED',
-          indicators: { isStale: false, isBlocked: false, hasMissingData: false, hasQualityWarning: false },
-          acknowledgedExceptions: [],
-        },
-        {
-          batchId: 'BATCH-005',
-          organizationId: orgId,
-          workOrderId: 'WO-1002',
-          lineId: 'LINE-B',
-          currentStation: null,
-          completedQuantity: 0,
-          status: 'PLANNED',
-          indicators: { isStale: false, isBlocked: false, hasMissingData: false, hasQualityWarning: false },
-          acknowledgedExceptions: [],
-        },
-        {
-          batchId: 'BATCH-006',
-          organizationId: orgId,
-          workOrderId: 'WO-1003',
-          lineId: 'LINE-C',
-          currentStation: null,
-          completedQuantity: 0,
-          status: 'PLANNED',
-          indicators: { isStale: false, isBlocked: false, hasMissingData: false, hasQualityWarning: false },
-          acknowledgedExceptions: [],
-        },
-      ]);
-    }
+    // Work orders and batches are intentionally not seeded here. The Application REST
+    // source owns these mappings, so the production board remains empty until that
+    // source is collected and metadata is materialized by the ingestion pipeline.
 
     // 4. Seed Default Local Sources
     const existingSources = await this.sourceRepo.count();
@@ -181,14 +74,16 @@ export class DatabaseSeederService implements OnApplicationBootstrap {
             username: process.env.PRODUCTION_DB_USER || 'postgres',
             timeoutMs: 5000,
           },
-          encryptedSecret: encryption.encrypt(process.env.PRODUCTION_DB_PASSWORD || 'postgres'),
+          encryptedSecret: process.env.PRODUCTION_DB_PASSWORD
+            ? encryption.encrypt(process.env.PRODUCTION_DB_PASSWORD)
+            : null,
           selectedSchema: {
             selectedTable: 'production_events',
           },
-          status: SourceStatus.VERIFIED,
+          status: process.env.PRODUCTION_DB_PASSWORD ? SourceStatus.VERIFIED : SourceStatus.UNVERIFIED,
           autoSync: false,
           syncIntervalSeconds: 30,
-          lastVerifiedAt: new Date(),
+          lastVerifiedAt: process.env.PRODUCTION_DB_PASSWORD ? new Date() : null,
           lastRunAt: null,
         },
         {
@@ -202,7 +97,7 @@ export class DatabaseSeederService implements OnApplicationBootstrap {
           },
           encryptedSecret: null,
           selectedSchema: {
-            resources: ['batches', 'dispatch-records', 'receiving-records'],
+            resources: ['work-orders', 'batches', 'dispatch-records', 'receiving-records'],
           },
           status: SourceStatus.VERIFIED,
           autoSync: false,

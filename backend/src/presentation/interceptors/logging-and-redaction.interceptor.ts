@@ -19,10 +19,15 @@ export class LoggingAndRedactionInterceptor implements NestInterceptor {
     }
     if (typeof obj === 'object') {
       const sanitized: Record<string, any> = {};
+      const sensitiveKeys = new Set([
+        'encryptedsecret', 'password', 'secret', 'connectionstring',
+        'authorization', 'token', 'accesstoken', 'refreshtoken',
+        'apikey', 'api_key', 'clientsecret', 'privatekey',
+      ]);
       for (const key of Object.keys(obj)) {
-        if (['encryptedSecret', 'password', 'secret', 'connectionString'].includes(key)) {
-          // If source entity or DTO has secret, replace with safe indicator
-          sanitized.hasSecret = Boolean(obj[key]);
+        if (sensitiveKeys.has(key.toLowerCase())) {
+          // Never return the value; expose only whether configuration exists.
+          sanitized.hasSecret = sanitized.hasSecret || Boolean(obj[key]);
         } else {
           sanitized[key] = this.redactSensitiveData(obj[key]);
         }

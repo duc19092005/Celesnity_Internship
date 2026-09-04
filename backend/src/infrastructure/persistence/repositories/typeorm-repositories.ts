@@ -278,6 +278,19 @@ export class TypeOrmNormalizedRecordRepository implements INormalizedRecordRepos
     return items.map((i) => this.toDomain(i));
   }
 
+  async findByObservationIdentity(
+    organizationId: string,
+    sourceId: string,
+    sourceRecordId: string,
+    sourceRevision: number,
+  ): Promise<NormalizedRecord[]> {
+    const items = await this.repo.find({
+      where: { organizationId, sourceId, sourceRecordId, sourceRevision },
+      order: { createdAt: 'ASC' },
+    });
+    return items.map((item) => this.toDomain(item));
+  }
+
   private toDomain(orm: NormalizedRecordOrmEntity): NormalizedRecord {
     return new NormalizedRecord(
       orm.id,

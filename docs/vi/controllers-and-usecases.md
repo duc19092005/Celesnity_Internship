@@ -41,23 +41,20 @@ Tài liệu này mô tả chi tiết danh sách tất cả các Controller, Endp
 
 ### 1.5 `PUT /api/v1/sources/:sourceId/selection` (Lưu Cấu Hình Chọn Bảng/Trường)
 * **UseCase được gọi:** `SaveSourceSelectionUseCase`
-* **Logic Nghiệp vụ:**
-  1. Cập nhật trường `selectedSchema` (ví dụ: chọn bảng `production_events`).
+* **Logic Nghiệp vụ:** Kiểm tra và lưu contract theo loại nguồn: PostgreSQL có `selectedTable` và `selectedColumns` tùy chọn; REST có `resources`; crawler có `headers`. Collection chỉ dùng selection đã lưu và bị từ chối nếu chưa có selection.
 
 ### 1.6 `POST /api/v1/sources/:sourceId/runs` (Kích Hoạt Thu Thập Dữ Liệu)
 * **UseCase được gọi:** `RunCollectionUseCase` $\rightarrow$ `IngestionPipelineService`
 * **Logic Nghiệp vụ Chi Tiết:**
-  1. **Kiểm tra sức khỏe trước khi cào (Pre-flight Health Check):** Tự động ping nhanh cổng kết nối. Nếu máy chủ nguồn bị ngắt, use case dừng ngay lập tức với lỗi `PREFLIGHT_CONNECTION_FAILED`, đánh dấu nguồn lỗi và lưu run ở trạng thái `FAILED`, bảo vệ đường ống dữ liệu.
-  2. Tạo đợt chạy `CollectionRun` ở trạng thái `RUNNING`.
-  3. Gọi Adapter tương ứng để cào/lấy dữ liệu thô.
-  4. **Lưu Raw Observations:** Lưu từng bản ghi gốc vào bảng `source_observations` (Append-only).
-  5. **Chuẩn hóa (Normalization):** Bóc tách `workOrderId`, `batchId`, `station`, `quantity`, `occurredAt`, `qualityStatus`. Bắt dòng lỗi `malformed rows` lưu vào log riêng mà không dừng đợt cào.
-  6. **Khử trùng lặp & Xử lý xung đột (DeduplicationResolver):**
-     - Gom nhóm theo cặp `(batchId, station)`.
-     - Phân loại: Bản ghi trùng hoàn toàn $\rightarrow$ `DUPLICATE` (không cộng dồn sản lượng). Bản ghi xung đột $\rightarrow$ `CONFLICT` (chọn người thắng theo quyền hạn nguồn và revision).
-     - Tạo hoặc cập nhật `CanonicalEvent`.
-  7. **Đánh giá trạng thái Dây chuyền:** Tính toán lại trạm xa nhất và trạng thái cho các lô hàng bị ảnh hưởng.
-  8. Cập nhật số lượng đếm và đóng đợt chạy với trạng thái `SUCCEEDED` hoặc `PARTIAL_SUCCESS`.
+  1. Bắt buộc có selection đã lưu, sau đó chạy pre-flight connection check. Nếu thất bại, dừng với `PREFLIGHT_CONNECTION_FAILED` và đánh dấu source lỗi.
+  2. Tạo `CollectionRun` ở trạng thái `RUNNING` và chạy đúng contract collector đã chọn.
+  3. **Raw Observation:** Lưu mọi item vào `source_observations` theo append-only.
+  4. **Materialize REST metadata:** Upsert `/work-orders` và `/batches` vào bảng metadata, không tạo sự kiện trạm; batch chỉ có metadata vẫn là `PLANNED`.
+  5. **Chuẩn hóa sự kiện vận hành:** Bóc tách `workOrderId`, `batchId` bắt buộc, station, quantity, timestamp và quality; record lỗi được cách ly nhưng vẫn có bằng chứng audit.
+  6. **Persisted observation identity:** So sánh `(organizationId, sourceId, sourceRecordId, sourceRevision)` với lịch sử normalized. Cùng nội dung nghiệp vụ là `DUPLICATE`; thay đổi nội dung là `CONFLICT`. Các trường transport không tham gia so sánh semantic.
+  7. **Canonical slot:** Các identity khác nhau trong `(organizationId, batchId, station)` là ứng viên cạnh tranh. Source authority, revision, occurrence time và source/record identity ổn định chọn một winner `ACCEPTED`; loser là `CONFLICT`, không phải duplicate.
+  8. Tạo/cập nhật đúng một `CanonicalEvent`, tính lại tổng duplicate/conflict và lưu cả winner cũ nếu bị hạ xuống conflict.
+  9. Đóng run với counter chỉ thuộc run hiện tại và trạng thái `SUCCEEDED`, `PARTIAL_SUCCESS` hoặc `FAILED`.
 
 ### 1.7 `PATCH /api/v1/sources/:sourceId/auto-sync` (Cấu Hình Tự Động Thu Thập)
 * **UseCase được gọi:** `ConfigureAutoSyncUseCase`

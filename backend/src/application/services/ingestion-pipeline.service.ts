@@ -3,18 +3,21 @@ import { Source } from '../../domain/entities/source.entity';
 import { SourceObservation } from '../../domain/entities/source-observation.entity';
 import { NormalizedRecord } from '../../domain/entities/normalized-record.entity';
 import { CanonicalEvent } from '../../domain/entities/canonical-event.entity';
-import { CollectionRunStatus, Disposition, QualityStatus, SourceType } from '../../domain/enums/common.enums';
+import { Batch } from '../../domain/entities/batch.entity';
+import { WorkOrder } from '../../domain/entities/work-order.entity';
+import { BatchStatus, CollectionRunStatus, Disposition, QualityStatus, SourceType } from '../../domain/enums/common.enums';
 import { isStationCode, StationCode } from '../../domain/enums/station-code.enum';
 import {
+  IBatchRepository,
   ICanonicalEventRepository,
   ICollectionRunRepository,
   INormalizedRecordRepository,
   ISourceObservationRepository,
   ISourceRepository,
+  IWorkOrderRepository,
 } from '../../domain/repositories';
 import { CollectorExecutionResult } from '../ports';
 import { DeduplicationResolver } from '../../domain/services/deduplication-resolver.service';
-import { FingerprintCacheService } from '../../infrastructure/cache/fingerprint-cache.service';
 
 export class IngestionPipelineService {
   constructor(
@@ -23,7 +26,8 @@ export class IngestionPipelineService {
     private readonly observationRepo: ISourceObservationRepository,
     private readonly normalizedRepo: INormalizedRecordRepository,
     private readonly canonicalRepo: ICanonicalEventRepository,
-    private readonly fingerprintCache?: FingerprintCacheService,
+    private readonly batchRepo: IBatchRepository,
+    private readonly workOrderRepo: IWorkOrderRepository,
   ) {}
 
   public async process(
@@ -62,29 +66,54 @@ export class IngestionPipelineService {
       const obs = observations[i];
       const raw = item.payload;
 
-      // Handle pure metadata / mapping records (e.g. /batches, /work-orders)
-      if (raw.resourceType === 'batches' || raw.resourceType === 'work-orders' || raw.isMetadata) {
-        normalizedRecords.push(
-          new NormalizedRecord(
-            `norm-${run.id}-${i + 1}`,
-            source.organizationId,
-            source.id,
-            run.id,
-            obs.id,
-            item.sourceRecordId || `rec-${i + 1}`,
-            item.sourceRevision || 1,
-            String(raw.batchId || 'METADATA'),
-            raw.workOrderId || null,
-            StationCode.RECEIVING,
-            0,
-            new Date(),
-            QualityStatus.PASS,
-            Disposition.ACCEPTED,
-            null,
-            null,
-            raw,
-          ),
-        );
+      // REST metadata owns board mappings, but is not an operational station event.
+      if (raw.resourceType === 'work-orders') {
+        const workOrderId = String(raw.workOrderId || raw.work_order_id || '').trim();
+        if (!workOrderId) {
+          run.addError('MISSING_WORK_ORDER_ID', `Metadata row #${i + 1} missing workOrderId`, i + 1, JSON.stringify(raw));
+          continue;
+        }
+        const existing = await this.workOrderRepo.findById(workOrderId, source.organizationId);
+        const defaultStart = existing?.plannedStartDate || new Date();
+        const defaultEnd = existing?.plannedEndDate || new Date(defaultStart.getTime() + 8 * 60 * 60 * 1000);
+        await this.workOrderRepo.save(new WorkOrder(
+          workOrderId,
+          source.organizationId,
+          String(raw.customerName || raw.customer_name || existing?.customerName || 'Unknown customer'),
+          Number(raw.targetQuantity ?? raw.target_quantity ?? existing?.targetQuantity ?? 0),
+          this.parseToUtc(raw.plannedStartDate || raw.planned_start_date || defaultStart),
+          this.parseToUtc(raw.plannedEndDate || raw.planned_end_date || defaultEnd),
+          String(raw.status || existing?.status || 'PLANNED'),
+          existing?.createdAt || new Date(),
+        ));
+        continue;
+      }
+
+      if (raw.resourceType === 'batches' || raw.isMetadata) {
+        const batchId = String(raw.batchId || raw.batch_id || '').trim();
+        const workOrderId = String(raw.workOrderId || raw.work_order_id || '').trim();
+        if (!batchId || !workOrderId) {
+          run.addError('INVALID_BATCH_METADATA', `Metadata row #${i + 1} requires batchId and workOrderId`, i + 1, JSON.stringify(raw));
+          continue;
+        }
+        const existing = await this.batchRepo.findById(batchId, source.organizationId);
+        await this.batchRepo.save(new Batch(
+          batchId,
+          source.organizationId,
+          workOrderId,
+          String(raw.lineId || raw.line_id || existing?.lineId || 'LINE-A'),
+          existing?.currentStation || null,
+          existing?.completedQuantity || 0,
+          existing?.status || BatchStatus.PLANNED,
+          existing?.lastEventTime || null,
+          existing?.indicators,
+          existing?.activeBlockReason || null,
+          existing?.activeBlockActor || null,
+          existing?.activeBlockTimestamp || null,
+          existing?.acknowledgedExceptions || [],
+          existing?.createdAt || new Date(),
+          new Date(),
+        ));
         continue;
       }
 
@@ -114,7 +143,7 @@ export class IngestionPipelineService {
       }
 
       const quantity = Number(raw.quantity ?? raw.pieces_count ?? raw.pieces ?? raw.completed_quantity ?? 0);
-      const occurredAt = this.parseToUtc(raw.eventTime || raw.event_time || raw.deliveryTime || raw.delivery_time || raw.created_at || raw.recorded_at || Date.now());
+      const occurredAt = this.parseToUtc(raw.eventTime || raw.event_time || raw.deliveryTime || raw.delivery_time || raw.receivedAt || raw.received_at || raw.receivingDate || raw.dispatchDate || raw.dispatch_date || raw.created_at || raw.recorded_at || Date.now());
       const qualityStatus = (String(raw.qualityStatus || raw.quality_status || 'PASS').toUpperCase() === 'FAIL') ? QualityStatus.FAIL : QualityStatus.PASS;
       const recordId = `norm-${run.id}-${i + 1}`;
 
@@ -194,42 +223,66 @@ export class IngestionPipelineService {
       );
     }
 
-    // 4. Save normalized records
-    await this.normalizedRepo.saveMany(normalizedRecords);
-
-    // 5. Cluster & Deduplication Resolution across all operational records
-    const allSources = await this.sourceRepo.findAll(source.organizationId);
-    const sourceTypesMap = new Map<string, SourceType>();
-    for (const s of allSources) {
-      sourceTypesMap.set(s.id, s.type);
-    }
-
-    const clusters = new Map<string, NormalizedRecord[]>();
-    for (const rec of normalizedRecords) {
-      if (rec.disposition === Disposition.REJECTED) continue;
-      const clusterKey = `${rec.batchId}::${rec.station}`;
-      if (!clusters.has(clusterKey)) {
-        clusters.set(clusterKey, []);
-      }
-      clusters.get(clusterKey)!.push(rec);
-    }
-
-    for (const [key, clusterRecs] of clusters.entries()) {
-      const [batchId, stationStr] = key.split('::');
-      const station = stationStr as StationCode;
-
-      const existingCanonical = await this.canonicalRepo.findByBatchAndStation(
-        batchId,
-        station,
-        source.organizationId,
+    // 4. Durable observation-identity classification.
+    // Raw observations are already append-only; normalized identity is
+    // (organization, source, sourceRecordId, sourceRevision).
+    const eligibleRecords: NormalizedRecord[] = [];
+    const currentByIdentity = new Map<string, NormalizedRecord[]>();
+    for (const record of normalizedRecords) {
+      if (record.disposition === Disposition.REJECTED) continue;
+      const identityKey = `${record.sourceId}\u0000${record.sourceRecordId}\u0000${record.sourceRevision}`;
+      const persisted = await this.normalizedRepo.findByObservationIdentity(
+        record.organizationId,
+        record.sourceId,
+        record.sourceRecordId,
+        record.sourceRevision,
       );
+      const identityHistory = [...persisted, ...(currentByIdentity.get(identityKey) || [])]
+        .filter((candidate) => candidate.disposition !== Disposition.REJECTED);
 
-      const resolution = DeduplicationResolver.resolveCluster(clusterRecs, sourceTypesMap);
+      if (identityHistory.length > 0) {
+        const identical = identityHistory.find((candidate) => DeduplicationResolver.areBusinessEquivalent(record, candidate));
+        record.disposition = identical ? Disposition.DUPLICATE : Disposition.CONFLICT;
+        record.dispositionReason = identical
+          ? `Repeated observation identity; business-identical to ${identical.id}`
+          : `Repeated observation identity has a conflicting business payload/revision`;
+      } else {
+        eligibleRecords.push(record);
+      }
+      currentByIdentity.set(identityKey, [...(currentByIdentity.get(identityKey) || []), record]);
+    }
+
+    // 5. Resolve canonical business slots (organization, batch, station).
+    const allSources = await this.sourceRepo.findAll(source.organizationId);
+    const sourceTypesMap = new Map(allSources.map((candidate) => [candidate.id, candidate.type]));
+    const clusters = new Map<string, NormalizedRecord[]>();
+    for (const record of eligibleRecords) {
+      const clusterKey = `${record.batchId}::${record.station}`;
+      clusters.set(clusterKey, [...(clusters.get(clusterKey) || []), record]);
+    }
+
+    for (const [key, currentCandidates] of clusters.entries()) {
+      const [batchId, stationValue] = key.split('::');
+      const station = stationValue as StationCode;
+      const existingCanonical = await this.canonicalRepo.findByBatchAndStation(batchId, station, source.organizationId);
+      const historicalWinner = existingCanonical
+        ? await this.normalizedRepo.findById(existingCanonical.winningNormalizedRecordId)
+        : null;
+      const candidates = historicalWinner ? [historicalWinner, ...currentCandidates] : currentCandidates;
+      const resolution = DeduplicationResolver.resolveCluster(candidates, sourceTypesMap);
       const winner = resolution.winner;
+      const canonicalId = existingCanonical?.id || `canon-${source.organizationId}-${batchId}-${station}`;
+
+      for (const record of currentCandidates) {
+        record.canonicalEventId = canonicalId;
+      }
+
+      const currentDuplicates = currentCandidates.filter((record) => record.disposition === Disposition.DUPLICATE).length;
+      const currentConflicts = currentCandidates.filter((record) => record.disposition === Disposition.CONFLICT).length;
 
       if (!existingCanonical) {
-        const canonical = new CanonicalEvent(
-          `canon-${batchId}-${station}`,
+        await this.canonicalRepo.save(new CanonicalEvent(
+          canonicalId,
           source.organizationId,
           batchId,
           station,
@@ -240,22 +293,12 @@ export class IngestionPipelineService {
           winner.id,
           winner.sourceRecordId,
           winner.qualityStatus,
-          resolution.duplicates.length,
-          resolution.conflicts.length,
+          currentDuplicates,
+          currentConflicts,
           winner.payload,
-        );
-        await this.canonicalRepo.save(canonical);
+        ));
       } else {
-        const existingWeight = DeduplicationResolver.getAuthorityWeight(
-          station,
-          sourceTypesMap.get(existingCanonical.winningSourceId) || SourceType.REST_API,
-        );
-        const newWeight = DeduplicationResolver.getAuthorityWeight(
-          station,
-          sourceTypesMap.get(winner.sourceId) || SourceType.REST_API,
-        );
-
-        if (newWeight >= existingWeight && winner.occurredAt >= existingCanonical.occurredAt) {
+        if (winner.id !== existingCanonical.winningNormalizedRecordId) {
           existingCanonical.quantity = winner.quantity;
           existingCanonical.occurredAt = winner.occurredAt;
           existingCanonical.winningSourceId = winner.sourceId;
@@ -263,22 +306,30 @@ export class IngestionPipelineService {
           existingCanonical.winningNormalizedRecordId = winner.id;
           existingCanonical.winningSourceRecordId = winner.sourceRecordId;
           existingCanonical.qualityStatus = winner.qualityStatus;
-          existingCanonical.duplicateObservationCount += resolution.duplicates.length;
-          existingCanonical.conflictObservationCount += resolution.conflicts.length;
           existingCanonical.payload = winner.payload;
-          existingCanonical.updatedAt = new Date();
-          await this.canonicalRepo.save(existingCanonical);
         }
-      }
-
-      await this.normalizedRepo.saveMany([winner, ...resolution.duplicates, ...resolution.conflicts]);
-
-      // Cache winning fingerprint in 128-bit memory store
-      if (this.fingerprintCache) {
-        const fpKey = `${winner.sourceId}::${winner.sourceRecordId}::${winner.sourceRevision}`;
-        this.fingerprintCache.add(fpKey);
+        existingCanonical.duplicateObservationCount += currentDuplicates;
+        existingCanonical.conflictObservationCount += currentConflicts;
+        existingCanonical.updatedAt = new Date();
+        await this.canonicalRepo.save(existingCanonical);
       }
     }
+
+    // Identity repeats were excluded from slot resolution; link them to an existing slot when possible.
+    for (const record of normalizedRecords) {
+      if (!record.canonicalEventId && (record.disposition === Disposition.DUPLICATE || record.disposition === Disposition.CONFLICT)) {
+        const canonical = await this.canonicalRepo.findByBatchAndStation(record.batchId, record.station, source.organizationId);
+        record.canonicalEventId = canonical?.id || null;
+        if (canonical) {
+          if (record.disposition === Disposition.DUPLICATE) canonical.duplicateObservationCount += 1;
+          else canonical.conflictObservationCount += 1;
+          canonical.updatedAt = new Date();
+          await this.canonicalRepo.save(canonical);
+        }
+      }
+    }
+
+    await this.normalizedRepo.saveMany(normalizedRecords);
 
     // 6. Update Run counters
     let accepted = 0;

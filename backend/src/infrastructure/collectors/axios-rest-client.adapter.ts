@@ -43,23 +43,15 @@ export class AxiosRestClientAdapter implements ICollectorAdapter {
     }
 
     const endpoints = [
-      { name: 'work-orders', path: '/work-orders', description: 'Work Orders & Line assignments' },
-      { name: 'batches', path: '/batches', description: 'Batch ID to Work Order mappings' },
-      { name: 'dispatch-records', path: '/dispatch-records', description: 'Station 6 Dispatch records' },
-      { name: 'receiving-records', path: '/receiving-records', description: 'Receiving records' },
-    ];
-
-    const fields: Array<{ name: string; type: string; example?: any }> = [
-      { name: 'workOrderId', type: 'string', example: 'WO-1001' },
-      { name: 'batchId', type: 'string', example: 'BATCH-001' },
-      { name: 'lineId', type: 'string', example: 'LINE-A' },
-      { name: 'station', type: 'string', example: 'DISPATCH' },
-      { name: 'quantity', type: 'number', example: 120 },
-      { name: 'dispatchDate', type: 'string', example: '2026-09-01T10:00:00Z' },
+      { name: 'work-orders', path: '/work-orders', description: 'Work Orders & Line assignments', fields: ['workOrderId', 'customerName', 'targetQuantity', 'plannedStartDate', 'plannedEndDate', 'status'] },
+      { name: 'batches', path: '/batches', description: 'Batch ID to Work Order mappings', fields: ['batchId', 'workOrderId', 'lineId'] },
+      { name: 'dispatch-records', path: '/dispatch-records', description: 'Station 6 Dispatch records', fields: ['dispatchId', 'workOrderId', 'batchId', 'station', 'quantity', 'dispatchDate', 'destination', 'vehicleNumber'] },
+      { name: 'receiving-records', path: '/receiving-records', description: 'Application receiving records', fields: ['receivingId', 'batchId', 'station', 'quantity', 'receivedAt'] },
     ];
 
     return {
-      fields,
+      fields: Array.from(new Set(endpoints.flatMap((endpoint) => endpoint.fields)))
+        .map((name) => ({ name, type: ['quantity', 'targetQuantity'].includes(name) ? 'number' : 'string' })),
       metadata: {
         endpoints,
         supportedMethods: ['GET'],
@@ -72,35 +64,41 @@ export class AxiosRestClientAdapter implements ICollectorAdapter {
     const baseUrl = (config.baseUrl || config.url || '').replace(/\/$/, '');
     const items: RawCollectedItem[] = [];
     const errors: Array<{ code: string; message: string; rowNumber?: number; rawExcerpt?: string }> = [];
+    const allowedResources = new Set(['work-orders', 'batches', 'dispatch-records', 'receiving-records']);
+    const selectedResources = Array.isArray(selectedSchema?.resources)
+      ? selectedSchema.resources.map((resource: unknown) => String(resource).replace(/^\//, ''))
+      : [];
 
-    // Resources to fetch: batches, dispatch-records, receiving-records
-    const resourceEndpoints = ['/batches', '/dispatch-records', '/receiving-records'];
+    if (!baseUrl) {
+      return { success: false, items, errors: [{ code: 'MISSING_BASE_URL', message: 'Base URL is required' }], durationMs: Date.now() - start };
+    }
+    if (selectedResources.length === 0) {
+      return { success: false, items, errors: [{ code: 'MISSING_RESOURCE_SELECTION', message: 'Select at least one REST resource before collection' }], durationMs: Date.now() - start };
+    }
+    const invalidResources = selectedResources.filter((resource: string) => !allowedResources.has(resource));
+    if (invalidResources.length > 0) {
+      return { success: false, items, errors: [{ code: 'INVALID_RESOURCE_SELECTION', message: `Unsupported REST resources: ${invalidResources.join(', ')}` }], durationMs: Date.now() - start };
+    }
 
-    for (const endpoint of resourceEndpoints) {
+    for (const resource of selectedResources) {
+      const endpoint = `/${resource}`;
       let page = 1;
       let hasMore = true;
 
       while (hasMore && page <= 10) {
         try {
           const url = `${baseUrl}${endpoint}?page=${page}&pageSize=50`;
-          const response = await this.executeWithRetry(async () => {
-            return axios.get(url, { timeout: config.timeoutMs || 5000 });
-          });
-
+          const response = await this.executeWithRetry(() => axios.get(url, { timeout: config.timeoutMs || 5000 }));
           const data = response.data;
           const records: any[] = Array.isArray(data) ? data : (data.items || data.records || data.data || []);
 
           for (let idx = 0; idx < records.length; idx++) {
             const rec = records[idx];
-            const stableId = rec.id || rec.sourceRecordId || rec.dispatchId || rec.receivingId || `${endpoint.replace('/', '')}-${rec.batchId || idx + 1}`;
-
+            const stableId = rec.id || rec.sourceRecordId || rec.dispatchId || rec.receivingId || rec.workOrderId || rec.batchId || `${resource}-${page}-${idx + 1}`;
             items.push({
               sourceRecordId: String(stableId),
-              sourceRevision: 1,
-              payload: {
-                ...rec,
-                resourceType: endpoint.replace('/', ''),
-              },
+              sourceRevision: Number(rec.sourceRevision || 1),
+              payload: { ...rec, resourceType: resource },
               observedAt: new Date(),
             });
           }
@@ -111,12 +109,12 @@ export class AxiosRestClientAdapter implements ICollectorAdapter {
             hasMore = false;
           }
         } catch (err: any) {
-          errors.push({
-            code: 'REST_FETCH_ERROR',
-            message: `Failed to fetch ${endpoint} (page ${page}): ${err.message}`,
-          });
+          errors.push({ code: 'REST_FETCH_ERROR', message: `Failed to fetch ${endpoint} (page ${page}): ${err.message}` });
           hasMore = false;
         }
+      }
+      if (hasMore) {
+        errors.push({ code: 'REST_PAGE_LIMIT_REACHED', message: `${endpoint} exceeded the 10-page safety limit` });
       }
     }
 

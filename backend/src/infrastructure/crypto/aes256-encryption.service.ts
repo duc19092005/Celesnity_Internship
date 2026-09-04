@@ -6,8 +6,12 @@ export class Aes256EncryptionService implements IEncryptionService {
   private readonly key: Buffer;
 
   constructor(secretKeyHex?: string) {
-    const rawKey = secretKeyHex || process.env.SOURCE_SECRET_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef';
-    // Ensure 32 bytes key
+    const configuredKey = secretKeyHex || process.env.SOURCE_SECRET_ENCRYPTION_KEY;
+    if (!configuredKey && process.env.NODE_ENV === 'production') {
+      throw new Error('SOURCE_SECRET_ENCRYPTION_KEY is required in production');
+    }
+    // Development/test fallback is random per process and is never committed or reusable.
+    const rawKey = configuredKey || crypto.randomBytes(32).toString('hex');
     this.key = crypto.createHash('sha256').update(rawKey).digest();
   }
 

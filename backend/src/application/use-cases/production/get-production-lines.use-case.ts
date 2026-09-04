@@ -113,7 +113,10 @@ export class GetProductionLinesUseCase {
       const stationSummaries: StationSummary[] = STATION_ORDER.map((station) => {
         const atStation = lineBatches.filter((b) => b.currentStation === station);
         const wipCount = atStation.filter((b) => b.status !== 'COMPLETED').length;
-        const completedQuantity = atStation.reduce((sum, b) => sum + (b.completedQuantity || 0), 0);
+        const completedQuantity = lineBatches.reduce((sum, batch) => {
+          const stationEvent = batch.canonicalEvents.find((event) => event.station === station);
+          return sum + (stationEvent?.quantity || 0);
+        }, 0);
         const staleCount = atStation.filter((b) => b.indicators.isStale).length;
         const blockedCount = atStation.filter((b) => b.indicators.isBlocked).length;
 

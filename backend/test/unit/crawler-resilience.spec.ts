@@ -54,6 +54,8 @@ describe('CheerioWebCrawlerAdapter (Resilience Unit Tests)', () => {
     const result = await adapter.collect({
       url: 'http://mock-supplier.local/deliveries?page=1',
       maxPages: 10,
+    }, {
+      headers: ['Delivery Number', 'Supplier', 'Batch ID', 'Quantity', 'Delivery Time'],
     });
 
     // Should stop gracefully after detecting the loop
@@ -88,6 +90,8 @@ describe('CheerioWebCrawlerAdapter (Resilience Unit Tests)', () => {
     const result = await adapter.collect({
       url: 'http://mock-supplier.local/deliveries',
       maxPages: 1,
+    }, {
+      headers: ['Delivery Number', 'Supplier', 'Batch ID', 'Quantity', 'Delivery Time'],
     });
 
     // Valid items are collected successfully (2 items)

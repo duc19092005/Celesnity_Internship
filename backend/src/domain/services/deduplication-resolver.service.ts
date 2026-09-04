@@ -62,66 +62,81 @@ export class DeduplicationResolver {
     // 1. Higher Source Authority
     // 2. Higher Source Revision
     // 3. More Recent OccurredAt
-    // 4. Lexical sort of Record ID as stable tie-breaker
+    // 4. Stable source/record identity tie-breaker
     const sorted = [...records].sort((a, b) => {
       const aType = sourceTypesMap.get(a.sourceId) ?? SourceType.REST_API;
       const bType = sourceTypesMap.get(b.sourceId) ?? SourceType.REST_API;
       const aWeight = this.getAuthorityWeight(a.station, aType);
       const bWeight = this.getAuthorityWeight(b.station, bType);
 
-      if (aWeight !== bWeight) {
-        return bWeight - aWeight;
-      }
-
-      if (a.sourceRevision !== b.sourceRevision) {
-        return b.sourceRevision - a.sourceRevision;
-      }
+      if (aWeight !== bWeight) return bWeight - aWeight;
+      if (a.sourceRevision !== b.sourceRevision) return b.sourceRevision - a.sourceRevision;
 
       const aTime = new Date(a.occurredAt).getTime();
       const bTime = new Date(b.occurredAt).getTime();
-      if (aTime !== bTime) {
-        return bTime - aTime;
-      }
+      if (aTime !== bTime) return bTime - aTime;
 
-      // 4. Prefer actual observed quantity > 0 over default placeholder 0
-      const aHasQty = a.quantity > 0 ? 1 : 0;
-      const bHasQty = b.quantity > 0 ? 1 : 0;
-      if (aHasQty !== bHasQty) {
-        return bHasQty - aHasQty;
-      }
-
-      return a.id.localeCompare(b.id);
+      const identityOrder = `${a.sourceId}\u0000${a.sourceRecordId}`.localeCompare(`${b.sourceId}\u0000${b.sourceRecordId}`);
+      return identityOrder !== 0 ? identityOrder : a.id.localeCompare(b.id);
     });
 
     const winner = sorted[0];
     winner.disposition = Disposition.ACCEPTED;
+    winner.dispositionReason = null;
 
     const duplicates: NormalizedRecord[] = [];
     const conflicts: NormalizedRecord[] = [];
 
     for (let i = 1; i < sorted.length; i++) {
       const candidate = sorted[i];
-      // Compare payloads & quantities
-      const isIdentical =
-        candidate.quantity === winner.quantity &&
-        candidate.qualityStatus === winner.qualityStatus &&
-        JSON.stringify(candidate.payload) === JSON.stringify(winner.payload);
+      const isIdentical = this.areBusinessEquivalent(candidate, winner);
 
       if (isIdentical) {
         candidate.disposition = Disposition.DUPLICATE;
-        candidate.dispositionReason = `Identical observation to winning record ${winner.id}`;
+        candidate.dispositionReason = `Business-identical observation to winning record ${winner.id}`;
         duplicates.push(candidate);
       } else {
         candidate.disposition = Disposition.CONFLICT;
-        candidate.dispositionReason = `Conflicting observation with winning record ${winner.id} (Winner authority/revision took precedence)`;
+        candidate.dispositionReason = `Conflicting observation with winning record ${winner.id} (authority/revision/time/identity precedence)`;
         conflicts.push(candidate);
       }
     }
 
-    return {
-      winner,
-      duplicates,
-      conflicts,
-    };
+    return { winner, duplicates, conflicts };
+  }
+
+  public static areBusinessEquivalent(a: NormalizedRecord, b: NormalizedRecord): boolean {
+    const aTime = new Date(a.occurredAt).getTime();
+    const bTime = new Date(b.occurredAt).getTime();
+    return a.batchId === b.batchId
+      && a.station === b.station
+      && a.quantity === b.quantity
+      && a.qualityStatus === b.qualityStatus
+      && aTime === bTime
+      && this.stableSerialize(this.canonicalizePayload(a.payload)) === this.stableSerialize(this.canonicalizePayload(b.payload));
+  }
+
+  private static canonicalizePayload(value: any): any {
+    const ignored = new Set(['row_id', 'recorded_at', 'sourcetable', 'sourcepage', 'resourcetype']);
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+      const parsed = new Date(value);
+      if (!isNaN(parsed.getTime())) return parsed.toISOString();
+    }
+    if (Array.isArray(value)) return value.map((item) => this.canonicalizePayload(item));
+    if (value && typeof value === 'object') {
+      return Object.keys(value)
+        .filter((key) => !ignored.has(key.toLowerCase()))
+        .sort()
+        .reduce((result, key) => {
+          result[key] = this.canonicalizePayload(value[key]);
+          return result;
+        }, {} as Record<string, any>);
+    }
+    return value;
+  }
+
+  private static stableSerialize(value: any): string {
+    return JSON.stringify(value);
   }
 }

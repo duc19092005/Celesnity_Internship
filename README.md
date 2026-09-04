@@ -61,49 +61,56 @@ The assessment specification explicitly states:
 Here is our documented design rationale:
 
 ### 1. Deterministic Deduplication & Conflict Policy
-* **Decision:** Group records by natural identity key `(organizationId, batchId, station, sourceRecordId)`.
-* **Deduplication:** Identical payload -> `DUPLICATE`. The first accepted canonical event retains the quantity; duplicates are retained as raw observations for provenance but **do not multiply the completed quantity**.
-* **Conflict Resolution:** Different payload for the same identity -> `CONFLICT`. Winner chosen deterministically via a 4-tier tuple:
+* **Observation identity:** Raw observations are always appended. A normalized observation identity is `(organizationId, sourceId, sourceRecordId, sourceRevision)` and is checked against persisted history, so manual and auto-sync runs behave identically.
+* **Canonical business slot:** Operational records compete within `(organizationId, batchId, station)`. REST `/work-orders` and `/batches` are metadata upserts only; they never create a zero-quantity `RECEIVING` event.
+* **Deduplication:** The same observation identity with the same canonical business content becomes `DUPLICATE`. Semantic comparison recursively sorts payload keys and ignores transport/provenance fields (`row_id`, `recorded_at`, `sourceTable`, `sourcePage`, `resourceType`). Raw and normalized evidence remains queryable, while quantity is counted once.
+* **Conflict Resolution:** A repeated identity with changed business content, or competing content in the same canonical slot, becomes `CONFLICT`. The winner is selected by:
   1. *Station Source Authority:* `RECEIVING` (Crawler > API > DB), `SORTING`-`FOLDING` (DB > API > MQTT), `DISPATCH` (API > DB).
-  2. *Source Revision:* Higher revision number wins.
+  2. *Source Revision:* Higher revision wins.
   3. *Occurred Time:* More recent timestamp wins.
-  4. *Deterministic Tie-breaker:* Lexical sort of Record ID.
-* **Trade-off:** Calculating canonical winners in memory during ingestion is deterministic and fast for batch processing, avoiding nondeterministic database locking order.
+  4. *Stable tie-breaker:* Lexical `(sourceId, sourceRecordId)`, then normalized record ID.
+* **Trade-off:** Persisted identity lookups cost database I/O, but correctness survives restarts and multiple collection runs. A unique database index protects each canonical business slot.
 
-### 2. Dual Isolated PostgreSQL Containers (Platform DB vs Production Source DB)
+### 2. Explicit Discovery & Collection Selection
+* PostgreSQL requires an explicitly selected table, validates identifiers and discovered columns, retains required normalization plus primary-key/source identity columns internally, and rejects tables without a stable identity.
+* REST collects only saved resources; the crawler emits only saved headers while retaining its stable row identity independently.
+* Collection is rejected when no saved selection exists. This makes discovery and selection functional controls rather than informational UI.
+
+### 3. Dual Isolated PostgreSQL Containers (Platform DB vs Production Source DB)
 * **Decision:** We provision two distinct PostgreSQL services in Docker Compose:
   - `platform-db` (Port 5432): Stores system tables (`sources`, `runs`, `observations`, `normalized_records`, `canonical_events`, `management_events`).
   - `production-db` (Port 5433): Simulates existing factory machine database.
-* **Trade-off:** Increases Docker Compose memory slightly compared to a single DB with multiple schemas, but provides 100% faithful network separation, allowing true database discovery, connection verification, and isolated credential testing.
+* **Trade-off:** Increases Docker Compose memory slightly compared to a single DB with multiple schemas, but provides faithful network separation, allowing true database discovery, connection verification, and isolated credential testing.
 
-### 3. Append-Only Management Audit Stream vs Mutable State
+### 4. Append-Only Management Audit Stream vs Mutable State
 * **Decision:** The platform never modifies historical raw observations or deletes previous management actions. Management actions (`BLOCK`, `RESUME`, `ACKNOWLEDGE`, `NOTE`) are stored in an append-only table with actor and timestamp.
 * **Batch Projection:** Current batch status and station position are dynamically projected from the stream of canonical events and management events.
-* **Trade-off:** Dynamic evaluation requires a domain evaluator run, but guarantees auditability, zero risk of data loss, and eliminates race conditions.
+* **Trade-off:** Dynamic evaluation requires a domain evaluator run, but guarantees auditability and deterministic reconstruction.
 
-### 4. Zero Credential Exposure
-* **Decision:** Passwords and connection secrets are encrypted with **AES-256-GCM** using an environment key (`SOURCE_SECRET_ENCRYPTION_KEY`).
-* **Masking:** API responses and UI forms never return or redisplay the password. The API returns `hasSecret: true/false`. Global interceptors redact `password`, `secret`, `authorization`, and `token` from all logs and error messages.
+### 5. Zero Credential Exposure
+* **Decision:** Passwords and connection secrets are encrypted with **AES-256-GCM** using `SOURCE_SECRET_ENCRYPTION_KEY`. Runtime database passwords and this key must be supplied through environment variables; Compose and `.env.example` contain no usable credential defaults.
+* **Masking:** API responses and UI forms never return or redisplay passwords. The API returns `hasSecret: true/false`; global interception and exception handling redact passwords, connection strings, authorization tokens, API keys, client secrets, and private keys.
+* **Local setup:** Copy `.env.example` to an untracked `.env`, generate distinct random values, and never commit it. If earlier repository history was shared with real secrets, rotate them; this working-tree fix does not rewrite Git history.
 
-### 5. Optional MQTT Isolation
+### 6. Optional MQTT Isolation
 * **Decision:** Mosquitto MQTT is packaged under an optional Compose profile (`mqtt`). Backend does not depend on Mosquitto at startup.
 * **Trade-off:** Prevents MQTT broker startup failures from breaking core factory visibility or CI/CD test runners.
 
-### 6. Pre-Registration Verification & Pre-Flight Health Check on Collection
+### 7. Pre-Registration Verification & Pre-Flight Health Check on Collection
 * **Decision:** The specification requires that users can *"Register and verify the database connection before use"* and *"Register and test a source"*. Rather than a fragmented experience where users save an unverified source and must manually locate the card to test it, the registration flow automatically verifies connectivity (`testConnection`) upon creation, saving new sources in `VERIFIED` status (`● Verified`).
 * **Pre-flight Health Check:** In `RunCollectionUseCase`, an automated pre-flight connectivity check tests the endpoint prior to scraping. If the target service is unreachable, it halts immediately with `PREFLIGHT_CONNECTION_FAILED`, marking the source in error and preventing corrupted collection runs.
 * **Trade-off:** Adds an instantaneous pre-flight ping (~10-25ms) before scraping, but guarantees zero aborted collection runs caused by network blips or bad credentials.
 
-### 7. Deterministic 6-Station Provenance Order & Visual Missing Data Gap
+### 8. Deterministic 6-Station Provenance Order & Visual Missing Data Gap
 * **Decision:** In lineage tracing (`GetBatchProvenanceUseCase`), canonical events are sorted strictly in ascending station rank (Station 1 `RECEIVING` ➔ Station 6 `DISPATCH`), regardless of asynchronous collection order or database insertion timestamps.
 * **Missing-Data Indicator:** Per the assessment rule (*"A later-station event may place a batch in progress even when an earlier event is missing, but the batch must display a missing-data indicator"*), the Provenance tab detects missing intermediate stages (such as Station 02 `SORTING` on `BATCH-003`) and explicitly renders an amber warning card: `⚠️ Thiếu Dữ Liệu (Missing Data Gap)` with a full explanation.
 * **Provenance KPI Strip:** A 4-metric strip at the top of the Provenance drawer summarizes Stages Reached (e.g. 4/6), Verified Stations (3/4), Missing Stations (1), and Total Raw Observations across all sync cycles.
 
-### 8. Plant Manager Dispatch Invariance (Completed Batch Immutability)
+### 9. Plant Manager Dispatch Invariance (Completed Batch Immutability)
 * **Decision:** Once a batch has completed Station 6 (`DISPATCH`) and entered `COMPLETED` status, domain use cases (`BlockBatchUseCase`, `ResumeBatchUseCase`) deterministically reject blocking or modifying operations with a 409 Conflict, preserving production immutability.
 * **Audit Trail:** Operators can still append audit notes, but physical production blocks on dispatched goods are strictly prohibited.
 
-### 9. 30-Second Background Auto-Sync & Deduplication Provenance
+### 10. 30-Second Background Auto-Sync & Deduplication Provenance
 * **Decision:** `AutoSyncSchedulerService` periodically scrapes enabled sources every 30 seconds. Duplicate observations over hundreds of sync runs are deduplicated into a single canonical event without inflating completed quantities, and are auditable in Provenance as `"Observed N times via Auto-Sync (Deduplicated)"`.
 
 ---
@@ -125,42 +132,31 @@ docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-c
 
 ---
 
-## 🔬 Performance Benchmark Summary: 128-Bit In-Memory Fingerprint vs Bloom Filter vs Database Query
+## 🔬 Performance Benchmark Note
 
-To address the I/O bottleneck of continuous 30-second polling (`Auto-Sync`) across high-throughput factory sources without risking the false-positive data loss of Bloom Filters, we designed and implemented a **128-Bit In-Memory Fingerprint Engine** (`FingerprintCacheService`).
-
-### Key Highlights:
-* **2,680x Speedup Over Database:** Processes 50,000 records in **175 ms** (~285,000 ops/s) vs 459 seconds (~109 ops/s) for direct PostgreSQL queries.
-* **100% Deterministic Accuracy:** 0% False Positives with an address space of 2¹²⁸ (approx. 3.4 × 10³⁸).
-* **Zero Database Load:** Ingests and filters raw observations entirely in memory.
-
-![Deduplication Benchmark Comparison](benchmark/benchmark_results_en.png)
-
-👉 **[Read the Full In-Depth Benchmark Report & Detailed Trade-Offs Analysis](benchmark/README.md)**
-*(Includes raw measurement JSON datasets, methodology, Python visualization scripts, and reproducible Docker runners).*
+The repository retains comparative benchmark material under [`benchmark/`](benchmark/) as design research. The production ingestion correctness path deliberately uses persisted observation history rather than the benchmark `FingerprintCacheService`: persistence is slower than a process-local cache, but survives restarts and supports deterministic cross-run auditability without cache-loss false negatives.
 
 ---
 
-## 🧪 Comprehensive 5-Phase Testing Strategy (30 Tests, 100% Pass)
+## 🧪 Verified Test & Build Status
 
-The platform is backed by a rigorous, automated testing suite adhering to **Rule 60** and **Rule 80**, covering every operational stage across 5 phases:
+The following commands were verified in the current working tree:
 
-| Phase | Test Scope & Invariants Covered | Test Count | Pass Rate |
-| :--- | :--- | :---: | :---: |
-| **Phase 1: Ingestion & Resilience** | Pagination loops, Malformed row isolation, 503 retry, Pre-flight ping, AES-256 secret masking | 8 Tests | 100% |
-| **Phase 2: Normalization & Deduplication** | UTC normalization, 0-quantity tie-breaker, Identical deduplication, Source authority hierarchy | 4 Tests | 100% |
-| **Phase 3: Production State Engine** | State precedence (COMPLETED > BLOCKED > IN_PROGRESS), Furthest station rule, Late event invariance, Dispatch lock | 8 Tests | 100% |
-| **Phase 4: Management Actions & Provenance** | Append-only audit trail (BLOCK, RESUME, ACKNOWLEDGE, NOTE), Deterministic 1 ➔ 6 station lineage order, Missing data detection | 4 Tests | 100% |
-| **Phase 5: E2E Workflow & Container Runner** | 3-source fixture ingestion, 3-line board generation, Date ISO UTC preservation, Docker Test Runner | 6 Tests | 100% |
-| **Total Automated Tests** | **Unit & E2E Suites** | **30 Tests** | **100% Pass** |
+| Command | Result |
+| :--- | :--- |
+| `cd backend && npm run build` | Passed |
+| `cd backend && npm test` | 7 unit suites, 30 tests passed |
+| `cd frontend && npm run build` | Passed on Next.js 16.3.4 / React 19 |
+| Docker Compose Test Runner | Passed (30 unit tests + 3 integrated E2E tests, exit code 0) |
 
-### Run Tests:
+The database-backed E2E suite is separate from the unit command and does not swallow bootstrap failures. Run it through the isolated Docker runner:
+
 ```bash
-# Run all tests locally via Jest:
+# Fast infrastructure-independent unit suite
 cd backend && npm test
 
-# Run isolated tests in Docker container:
+# Database-backed E2E/full container verification
 docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
 ```
 
-👉 **[Read the Full 5-Phase Testing Strategy & Detailed Test Matrix Document](docs/en/testing-strategy.md)**
+See [`docs/en/testing-strategy.md`](docs/en/testing-strategy.md) for the exact verified matrix and remaining environment-dependent checks.

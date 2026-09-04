@@ -90,7 +90,36 @@ export class SaveSourceSelectionUseCase {
       throw new Error(`Source with ID ${sourceId} not found`);
     }
 
+    this.validateSelection(source, selection);
     source.updateSelection(selection);
     return this.sourceRepo.save(source);
+  }
+
+  private validateSelection(source: Source, selection: any): void {
+    if (!selection || typeof selection !== 'object') {
+      throw new Error('A schema selection object is required');
+    }
+
+    if (source.type === 'POSTGRESQL') {
+      if (typeof selection.selectedTable !== 'string' || !selection.selectedTable.trim()) {
+        throw new Error('A PostgreSQL table must be selected');
+      }
+      if (selection.selectedColumns !== undefined && !Array.isArray(selection.selectedColumns)) {
+        throw new Error('PostgreSQL selectedColumns must be an array');
+      }
+    } else if (source.type === 'REST_API') {
+      if (!Array.isArray(selection.resources) || selection.resources.length === 0) {
+        throw new Error('At least one REST resource must be selected');
+      }
+    } else if (source.type === 'WEB_CRAWLER') {
+      if (!Array.isArray(selection.headers) || selection.headers.length === 0) {
+        throw new Error('At least one crawler field must be selected');
+      }
+      const required = ['Delivery Number', 'Supplier', 'Batch ID', 'Quantity', 'Delivery Time'];
+      const missing = required.filter((header) => !selection.headers.includes(header));
+      if (missing.length > 0) {
+        throw new Error(`Crawler selection is missing required fields: ${missing.join(', ')}`);
+      }
+    }
   }
 }

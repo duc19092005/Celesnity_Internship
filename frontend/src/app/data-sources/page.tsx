@@ -60,6 +60,9 @@ export default function DataSourcesPage() {
   const [schemaModalSource, setSchemaModalSource] = useState<any | null>(null);
   const [discoveredSchema, setDiscoveredSchema] = useState<any | null>(null);
   const [selectedTable, setSelectedTable] = useState<string>('');
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [selectedResources, setSelectedResources] = useState<string[]>([]);
+  const [selectedHeaders, setSelectedHeaders] = useState<string[]>([]);
   const [previewRunId, setPreviewRunId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<any | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -73,7 +76,7 @@ export default function DataSourcesPage() {
     port: 5432,
     database: 'production_db',
     username: 'postgres',
-    secret: 'postgres',
+    secret: '',
     url: 'http://localhost:4000/fixtures/supplier/deliveries',
     baseUrl: 'http://localhost:4000/fixtures/application-api',
     maxPages: 5,
@@ -181,7 +184,12 @@ export default function DataSourcesPage() {
       const res = await SourcesApi.discover(source.id);
       setDiscoveredSchema(res);
       setSchemaModalSource(source);
-      setSelectedTable(source.selectedSchema?.selectedTable || res.tables?.[0]?.name || '');
+      const nextTable = source.selectedSchema?.selectedTable || res.tables?.[0]?.name || '';
+      setSelectedTable(nextTable);
+      const table = res.tables?.find((candidate: any) => candidate.name === nextTable);
+      setSelectedColumns(source.selectedSchema?.selectedColumns || table?.columns?.map((column: any) => column.name) || []);
+      setSelectedResources(source.selectedSchema?.resources || res.metadata?.endpoints?.map((endpoint: any) => endpoint.name) || []);
+      setSelectedHeaders(source.selectedSchema?.headers || res.headers || []);
       toast.info(
         locale === 'vi' ? 'Khám phá cấu trúc thành công' : 'Schema discovered',
         {
@@ -200,14 +208,20 @@ export default function DataSourcesPage() {
   const handleSaveSelection = async () => {
     if (!schemaModalSource) return;
     try {
-      await SourcesApi.saveSelection(schemaModalSource.id, {
-        selectedTable,
-      });
+      const selection = schemaModalSource.type === 'POSTGRESQL'
+        ? { selectedTable, selectedColumns }
+        : schemaModalSource.type === 'REST_API'
+          ? { resources: selectedResources }
+          : { headers: selectedHeaders };
+      await SourcesApi.saveSelection(schemaModalSource.id, selection);
+      const selectionSummary = schemaModalSource.type === 'POSTGRESQL'
+        ? `${selectedTable} (${selectedColumns.length} fields)`
+        : schemaModalSource.type === 'REST_API'
+          ? selectedResources.join(', ')
+          : selectedHeaders.join(', ');
       toast.success(
-        locale === 'vi' ? 'Đã lưu cấu hình bảng dữ liệu' : 'Schema configuration saved',
-        {
-          description: `Bảng chọn: ${selectedTable}`,
-        },
+        locale === 'vi' ? 'Đã lưu lựa chọn dữ liệu' : 'Collection selection saved',
+        { description: selectionSummary },
       );
       setSchemaModalSource(null);
       loadData();
@@ -612,7 +626,8 @@ export default function DataSourcesPage() {
                     {source.selectedSchema && (
                       <span className="inline-flex items-center gap-1 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 px-2 py-0.5 text-[10px] font-mono font-medium">
                         <Table className="h-3 w-3" />
-                        <span>{source.selectedSchema.selectedTable || 'Bảng mặc định'}</span>
+                        <span>{source.selectedSchema.selectedTable
+                          || `${source.selectedSchema.resources?.length || source.selectedSchema.headers?.length || 0} selected`}</span>
                       </span>
                     )}
                   </div>
@@ -674,7 +689,8 @@ export default function DataSourcesPage() {
                   {/* Primary Collect Button */}
                   <button
                     onClick={() => handleCollect(source)}
-                    disabled={isCollecting}
+                    disabled={isCollecting || !source.selectedSchema}
+                    title={!source.selectedSchema ? (locale === 'vi' ? 'Khám phá và lưu lựa chọn trước' : 'Discover and save a selection first') : undefined}
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] py-2 text-xs font-bold text-white shadow-xs transition-colors disabled:opacity-60"
                   >
                     {isCollecting ? (
@@ -1141,7 +1157,10 @@ export default function DataSourcesPage() {
                           name="selectedTable"
                           value={table.name}
                           checked={selectedTable === table.name}
-                          onChange={(e) => setSelectedTable(e.target.value)}
+                          onChange={(e) => {
+                            setSelectedTable(e.target.value);
+                            setSelectedColumns(table.columns?.map((column: any) => column.name) || []);
+                          }}
                           className="h-3.5 w-3.5 text-blue-600"
                         />
                         <span className="font-bold text-xs text-slate-900 dark:text-white">
@@ -1155,12 +1174,20 @@ export default function DataSourcesPage() {
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1 pl-6">
                         {table.columns?.map((col: any) => (
-                          <span
+                          <label
                             key={col.name}
-                            className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-600 dark:text-slate-400"
+                            className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-600 dark:text-slate-400"
                           >
+                            <input
+                              type="checkbox"
+                              checked={selectedTable === table.name && selectedColumns.includes(col.name)}
+                              disabled={selectedTable !== table.name}
+                              onChange={() => setSelectedColumns((columns) => columns.includes(col.name)
+                                ? columns.filter((name) => name !== col.name)
+                                : [...columns, col.name])}
+                            />
                             {col.name} ({col.type})
-                          </span>
+                          </label>
                         ))}
                       </div>
                     </label>
@@ -1172,14 +1199,40 @@ export default function DataSourcesPage() {
             {discoveredSchema?.headers && (
               <div className="space-y-2">
                 <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Các Tiêu Đề Cột HTML Tự Động Nhận Diện:
+                  Chọn Các Trường HTML Cần Thu Thập:
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {discoveredSchema.headers.map((h: string) => (
-                    <span key={h} className="inline-flex items-center gap-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 px-2.5 py-1 text-xs font-semibold">
-                      <Check className="h-3 w-3 text-blue-600" />
+                    <label key={h} className="inline-flex items-center gap-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 px-2.5 py-1 text-xs font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={selectedHeaders.includes(h)}
+                        onChange={() => setSelectedHeaders((headers) => headers.includes(h)
+                          ? headers.filter((name) => name !== h)
+                          : [...headers, h])}
+                      />
                       <span>{h}</span>
-                    </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {discoveredSchema?.metadata?.endpoints && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">REST Resources To Collect:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {discoveredSchema.metadata.endpoints.map((endpoint: any) => (
+                    <label key={endpoint.name} className="flex items-start gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={selectedResources.includes(endpoint.name)}
+                        onChange={() => setSelectedResources((resources) => resources.includes(endpoint.name)
+                          ? resources.filter((name) => name !== endpoint.name)
+                          : [...resources, endpoint.name])}
+                      />
+                      <span><strong>{endpoint.path}</strong><br/><span className="text-slate-500">{endpoint.description}</span></span>
+                    </label>
                   ))}
                 </div>
               </div>
@@ -1194,7 +1247,7 @@ export default function DataSourcesPage() {
                   {discoveredSchema.fields.map((f: any) => (
                     <div key={f.name} className="rounded-lg bg-slate-50 dark:bg-slate-800 p-2 text-xs border border-slate-200 dark:border-slate-700">
                       <div className="font-bold text-blue-600 dark:text-blue-400">{f.name} ({f.type})</div>
-                      <div className="text-[10px] text-slate-400">Ví dụ: {String(f.example)}</div>
+                      {f.example !== undefined && <div className="text-[10px] text-slate-400">Ví dụ: {String(f.example)}</div>}
                     </div>
                   ))}
                 </div>

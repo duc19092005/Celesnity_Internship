@@ -1,4 +1,4 @@
-﻿import { of } from 'rxjs';
+import { of } from 'rxjs';
 import { Aes256EncryptionService } from '../../src/infrastructure/crypto/aes256-encryption.service';
 import { LoggingAndRedactionInterceptor } from '../../src/presentation/interceptors/logging-and-redaction.interceptor';
 import { ExecutionContext, CallHandler } from '@nestjs/common';
@@ -126,6 +126,8 @@ describe('Preflight & Security Test Suite (Unit Tests - Phase 1 & 5)', () => {
         'Unreachable DB',
         SourceType.POSTGRESQL,
         { host: 'dead-host', port: 9999 },
+        null,
+        { selectedTable: 'production_events' },
       );
 
       mockSourceRepo.findById.mockResolvedValue(source);

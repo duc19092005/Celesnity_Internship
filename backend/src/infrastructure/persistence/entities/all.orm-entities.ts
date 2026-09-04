@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, PrimaryColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryColumn } from 'typeorm';
 import { CollectionRunStatus, Disposition, ManagementAction, QualityStatus } from '../../../domain/enums/common.enums';
 import { StationCode } from '../../../domain/enums/station-code.enum';
 
@@ -138,6 +138,7 @@ export class NormalizedRecordOrmEntity {
 }
 
 @Entity('canonical_events')
+@Index('uq_canonical_business_slot', ['organizationId', 'batchId', 'station'], { unique: true })
 export class CanonicalEventOrmEntity {
   @PrimaryColumn('varchar', { length: 80 })
   id: string;

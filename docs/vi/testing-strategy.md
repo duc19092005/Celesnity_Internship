@@ -1,4 +1,4 @@
-﻿# Chiến Lược Kiểm Thử & Ma Trận Test Cases Toàn Diện
+# Chiến Lược Kiểm Thử & Ma Trận Test Cases Toàn Diện
 ## Factory Data & Production Line Platform
 
 Tài liệu này trình bày toàn bộ chiến lược kiểm thử, cấu trúc các tầng test và ma trận test case chi tiết 5 giai đoạn cho hệ thống Factory Data & Production Line Platform, tuân thủ nghiêm ngặt **Rule 60** và **Rule 80**.
@@ -8,13 +8,13 @@ Tài liệu này trình bày toàn bộ chiến lược kiểm thử, cấu trú
 ## 1. Triết Lý & Mô Hình Kiểm Thử (Testing Philosophy)
 
 Hệ thống áp dụng mô hình kim tự tháp kiểm thử (Testing Pyramid) với nguyên tắc cô lập tối đa:
-1. **Domain & UseCase Unit Tests (Tầng đáy - 27 Test Cases)**:
-   - Kiểm thử độc lập 100% logic nghiệp vụ: Khử trùng lặp, giải quyết tranh chấp, trạm xa nhất, không lùi trạm, ma trận ưu tiên trạng thái, append-only audit, và kiểm tra pre-flight connection.
-   - Thời gian chạy siêu nhanh (~10s), không phụ thuộc database ngoài.
-2. **Integration & E2E Tests (Tầng giữa - 3 Test Cases)**:
-   - Kiểm thử luồng dữ liệu thực tế từ Fixtures: Web Crawler HTML, REST API với cơ chế retry chịu lỗi 503 tạm thời.
+1. **Domain & UseCase Unit Tests (Tầng đáy - 30 Test Cases qua 7 suites)**:
+   - Kiểm thử độc lập 100% logic nghiệp vụ: Khử trùng lặp, giải quyết tranh chấp, pipeline nạp metadata và dedup xuyên nhiều run, trạm xa nhất, không lùi trạm, ma trận ưu tiên trạng thái, append-only audit, và kiểm tra pre-flight connection.
+   - Thời gian chạy siêu nhanh (~9s), không phụ thuộc database ngoài.
+2. **Integration & E2E Tests (Tầng giữa - 3 Kịch bản luồng tích hợp)**:
+   - Kịch bản luồng đa nguồn đầu cuối (`test/e2e/workflow.spec.ts`): Đăng ký, khám phá schema, chọn hợp đồng dữ liệu, thu thập từ 3 nguồn (Crawler, PostgreSQL, REST), kiểm chứng deduplication xuyên các lần chạy và trạng thái 6 trạm dây chuyền.
 3. **Docker Compose Test Runner (Tầng đỉnh - CI/CD Container)**:
-   - File cấu hình `infrastructure/docker-compose.test.yml` dựng môi trường container độc lập hoàn toàn, khởi tạo database sạch và thực thi toàn bộ test suite với lệnh:
+   - File cấu hình `infrastructure/docker-compose.test.yml` dựng môi trường container độc lập hoàn toàn, khởi tạo database sạch và thực thi chuỗi lệnh `npm test && npm run test:e2e` với:
      ```bash
      docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
      ```

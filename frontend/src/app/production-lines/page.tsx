@@ -261,6 +261,20 @@ export default function ProductionLinesPage() {
     }
   };
 
+  const handleAcknowledgeException = async (exceptionKey: string) => {
+    if (!selectedBatchId) return;
+    try {
+      setIsSubmittingAction(true);
+      await ProductionApi.acknowledgeException(selectedBatchId, exceptionKey);
+      toast.success(locale === 'vi' ? `Đã xác nhận cảnh báo ${exceptionKey}` : `${exceptionKey} acknowledged`);
+      await Promise.all([handleSelectBatch(selectedBatchId, true), loadData()]);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
   const handleSaveThreshold = async () => {
     try {
       await ProductionApi.updateStaleThreshold(staleThreshold);
@@ -295,7 +309,7 @@ export default function ProductionLinesPage() {
   const filteredBatchesByStation = useMemo(() => {
     const batches = currentLine?.batches || [];
     return stationsOrder.map((st) => {
-      let list = batches.filter((b: any) => b.currentStation === st.code);
+      let list = batches.filter((b: any) => b.currentStation === st.code || (st.code === 'RECEIVING' && !b.currentStation));
 
       // Search Query
       if (searchQuery.trim()) {
@@ -840,7 +854,7 @@ export default function ProductionLinesPage() {
                                 {isStale && (
                                   <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/60 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
                                     <Clock className="h-2.5 w-2.5" />
-                                    {locale === 'vi' ? 'Quá hạn >15p' : 'Stale >15m'}
+                                    {locale === 'vi' ? `Quá hạn >${staleThreshold}p` : `Stale >${staleThreshold}m`}
                                   </span>
                                 )}
                                 {hasMissing && (
@@ -1125,6 +1139,33 @@ export default function ProductionLinesPage() {
                         <Ban className="h-3.5 w-3.5" />
                         <span>{locale === 'vi' ? 'Tạm Dừng Lô Hàng (BLOCK)' : 'Block Batch'}</span>
                       </button>
+                    </div>
+                  )}
+
+                  {[
+                    batchDetail.batch.indicators?.isStale && { key: 'STALE', label: locale === 'vi' ? `Quá ngưỡng ${staleThreshold} phút` : `Stale over ${staleThreshold} minutes` },
+                    batchDetail.batch.indicators?.hasMissingData && { key: 'MISSING_DATA', label: locale === 'vi' ? 'Thiếu sự kiện trạm trước' : 'Missing previous-station data' },
+                    batchDetail.batch.indicators?.hasQualityWarning && { key: 'QUALITY_WARNING', label: locale === 'vi' ? 'Cảnh báo chất lượng' : 'Quality warning' },
+                  ].filter(Boolean).length > 0 && (
+                    <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        {locale === 'vi' ? 'Xác nhận ngoại lệ đang hoạt động:' : 'Acknowledge active exceptions:'}
+                      </p>
+                      {([
+                        batchDetail.batch.indicators?.isStale && { key: 'STALE', label: locale === 'vi' ? `Quá ngưỡng ${staleThreshold} phút` : `Stale over ${staleThreshold} minutes` },
+                        batchDetail.batch.indicators?.hasMissingData && { key: 'MISSING_DATA', label: locale === 'vi' ? 'Thiếu sự kiện trạm trước' : 'Missing previous-station data' },
+                        batchDetail.batch.indicators?.hasQualityWarning && { key: 'QUALITY_WARNING', label: locale === 'vi' ? 'Cảnh báo chất lượng' : 'Quality warning' },
+                      ].filter(Boolean) as Array<{ key: string; label: string }>).map((exception) => {
+                        const acknowledged = batchDetail.batch.acknowledgedExceptions?.includes(exception.key);
+                        return <button
+                          key={exception.key}
+                          onClick={() => handleAcknowledgeException(exception.key)}
+                          disabled={isSubmittingAction || acknowledged}
+                          className="w-full rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 py-2 text-xs font-bold text-amber-800 dark:text-amber-300 disabled:opacity-60"
+                        >
+                          {acknowledged ? `✓ ${exception.label}` : `${locale === 'vi' ? 'XÁC NHẬN' : 'ACKNOWLEDGE'} — ${exception.label}`}
+                        </button>;
+                      })}
                     </div>
                   )}
 

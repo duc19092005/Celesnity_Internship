@@ -37,6 +37,12 @@ export interface INormalizedRecordRepository {
   findByRunId(runId: string, page?: number, pageSize?: number): Promise<{ items: NormalizedRecord[]; total: number }>;
   findByBatchId(batchId: string, organizationId: string): Promise<NormalizedRecord[]>;
   findByBatchAndStation(batchId: string, station: StationCode, organizationId: string): Promise<NormalizedRecord[]>;
+  findByObservationIdentity(
+    organizationId: string,
+    sourceId: string,
+    sourceRecordId: string,
+    sourceRevision: number,
+  ): Promise<NormalizedRecord[]>;
 }
 
 export interface ICanonicalEventRepository {

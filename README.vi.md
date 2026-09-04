@@ -58,49 +58,56 @@ Nền tảng vận hành tập trung cho xưởng giặt ủi công nghiệp gi�
 Đề bài yêu cầu:
 > *"Where the requirements leave implementation choices open, document your assumptions, design decisions, and trade-offs in the README. We will assess whether your chosen approach is deterministic, internally consistent, appropriately tested, and clearly explained."*
 
-### 1. Chính Sách Khử Trùng Lặp & Xử Lý Xung Đột Tất Định (Deterministic Policy)
-* **Quyết định:** Định danh bản ghi theo bộ khóa tự nhiên `(organizationId, batchId, station, sourceRecordId)`.
-* **Khử trùng lặp:** Cùng khóa và nội dung giống hệt -> `DUPLICATE`. Sự kiện Canonical đầu tiên giữ nguyên sản lượng; các bản ghi trùng lặp vẫn được lưu thô để truy vết nhưng **tuyệt đối không cộng dồn sản lượng hoàn thành**.
-* **Xử lý xung đột:** Cùng khóa nhưng dữ liệu khác nhau -> `CONFLICT`. Bản ghi chiến thắng được chọn tất định theo bộ 4 tiêu chí:
-  1. *Quyền hạn nguồn theo trạm:* `RECEIVING` (Crawler > API > DB), `SORTING`-`FOLDING` (DB > API > MQTT), `DISPATCH` (API > DB).
-  2. *Revision nguồn:* Revision cao hơn thắng.
-  3. *Thời điểm diễn ra:* Sự kiện mới hơn thắng.
-  4. *Tie-breaker:* Sắp xếp từ điển theo ID bản ghi.
-* **Đánh đổi:** Xử lý canonical trong bộ nhớ khi thu thập đảm bảo tốc độ cực nhanh và tính tất định 100%, không phụ thuộc vào thứ tự locking của Database.
+### 1. Chính Sách Khử Trùng Lặp & Xử Lý Xung Đột Tất Định
+* **Định danh observation:** Raw observation luôn được lưu append-only. Khóa observation chuẩn hóa là `(organizationId, sourceId, sourceRecordId, sourceRevision)` và được đối chiếu với lịch sử đã lưu, nên chạy thủ công và auto-sync cho kết quả giống nhau.
+* **Ô nghiệp vụ canonical:** Sự kiện vận hành cạnh tranh trong `(organizationId, batchId, station)`. REST `/work-orders` và `/batches` chỉ upsert metadata, tuyệt đối không sinh sự kiện `RECEIVING` giả có số lượng 0.
+* **Khử trùng lặp:** Cùng identity và cùng nội dung nghiệp vụ trở thành `DUPLICATE`. So sánh semantic sắp xếp key đệ quy và bỏ qua trường vận chuyển/provenance (`row_id`, `recorded_at`, `sourceTable`, `sourcePage`, `resourceType`). Bằng chứng raw/normalized vẫn được giữ nhưng sản lượng chỉ tính một lần.
+* **Xử lý xung đột:** Identity lặp lại nhưng nội dung nghiệp vụ thay đổi, hoặc dữ liệu cạnh tranh trong cùng ô canonical, trở thành `CONFLICT`. Bản ghi thắng theo:
+  1. Quyền hạn nguồn theo trạm: `RECEIVING` (Crawler > API > DB), `SORTING`-`FOLDING` (DB > API > MQTT), `DISPATCH` (API > DB).
+  2. Revision nguồn cao hơn.
+  3. Thời điểm diễn ra mới hơn.
+  4. Tie-breaker ổn định: thứ tự từ điển `(sourceId, sourceRecordId)`, sau đó ID normalized.
+* **Đánh đổi:** Truy vấn identity đã lưu tốn I/O hơn cache trong tiến trình, nhưng đúng qua nhiều run và sau restart. Unique index bảo vệ mỗi ô canonical trong database.
 
-### 2. Kiến Trúc 2 Container PostgreSQL Độc Lập
+### 2. Discovery & Selection Điều Khiển Collection
+* PostgreSQL bắt buộc chọn bảng rõ ràng, kiểm tra identifier/cột đã discover, tự giữ các cột chuẩn hóa và primary-key/source identity cần thiết, đồng thời từ chối bảng không có identity ổn định.
+* REST chỉ thu thập resources đã lưu; crawler chỉ phát payload theo headers đã lưu nhưng vẫn giữ row identity độc lập.
+* Collection bị từ chối nếu chưa lưu selection; discovery/selection là điều khiển chức năng thật, không chỉ là thông tin UI.
+
+### 3. Kiến Trúc 2 Container PostgreSQL Độc Lập
 * **Quyết định:** Tách biệt thành 2 service Database trong Docker:
   - `platform-db` (Port 5432): Lưu dữ liệu của hệ thống.
   - `production-db` (Port 5433): Giả lập database sản xuất máy móc nhà máy.
-* **Đánh đổi:** Tốn thêm một lượng RAM nhỏ cho container thứ hai nhưng phản ánh trung thực 100% môi trường nhà máy thực tế, cho phép kiểm tra quy trình khám phá schema và kiểm thử thông tin xác thực hoàn toàn độc lập.
+* **Đánh đổi:** Tốn thêm một lượng RAM nhỏ nhưng phản ánh trung thực môi trường nhà máy, cho phép discovery và xác thực kết nối độc lập.
 
-### 3. Lưu Trữ Sự Kiện Bất Biến (Append-Only) & Tính Trạng Thái Động
-* **Quyết định:** Không bao giờ cập nhật hay xóa dữ liệu thô ban đầu. Thao tác của Quản lý (`BLOCK`, `RESUME`, `ACKNOWLEDGE`, `NOTE`) được lưu dạng Append-only kèm người thực hiện (`actor`) và thời gian (`timestamp`).
-* **Đánh đổi:** Trạng thái lô hàng được tính toán động (Projection) qua `ProductionStateEvaluator`, đảm bảo tính toàn vẹn kiểm toán (Auditability) và triệt tiêu hoàn toàn rủi ro tranh chấp dữ liệu (Race conditions).
+### 4. Lưu Trữ Sự Kiện Bất Biến & Tính Trạng Thái Động
+* **Quyết định:** Không cập nhật/xóa dữ liệu thô. Thao tác (`BLOCK`, `RESUME`, `ACKNOWLEDGE`, `NOTE`) được lưu append-only kèm actor và timestamp.
+* **Đánh đổi:** Trạng thái được projection bởi `ProductionStateEvaluator`, bảo đảm khả năng kiểm toán và tái tạo tất định.
 
-### 4. Bảo Mật Thông Tin Xác Thực (Zero Secret Exposure)
-* **Quyết định:** Mã hóa mật khẩu chuẩn **AES-256-GCM** với khóa môi trường `SOURCE_SECRET_ENCRYPTION_KEY`.
-* **Che giấu:** API và Giao diện không bao giờ trả về mật khẩu (chỉ trả về `hasSecret: true`). Tầng Interceptor tự động xóa sạch các từ khóa `password`, `secret`, `token` khỏi mọi Log và thông báo lỗi.
+### 5. Bảo Mật Thông Tin Xác Thực
+* **Quyết định:** Mã hóa secret bằng **AES-256-GCM** với `SOURCE_SECRET_ENCRYPTION_KEY`. Mật khẩu database và khóa mã hóa phải truyền qua biến môi trường; Compose và `.env.example` không chứa giá trị sử dụng được.
+* **Che giấu:** API/UI không trả hoặc hiển thị lại mật khẩu; chỉ có `hasSecret`. Interceptor và exception filter che password, connection string, authorization/token, API key, client secret và private key.
+* **Thiết lập local:** Sao chép `.env.example` thành `.env` không track, tạo các giá trị ngẫu nhiên khác nhau và không commit. Nếu lịch sử Git trước đây đã được chia sẻ với secret thật, phải rotate; thay đổi working tree này không rewrite lịch sử.
 
-### 5. Cách Ly Dịch Vụ MQTT Tùy Chọn
+### 6. Cách Ly Dịch Vụ MQTT Tùy Chọn
 * **Quyết định:** Đặt Mosquitto MQTT trong Docker Compose Profile `mqtt`. Backend và bộ Test Runner hoạt động độc lập và pass 100% ngay cả khi không bật Mosquitto.
 * **Đánh đổi:** Đảm bảo hệ thống cốt lõi không bao giờ bị gián đoạn bởi các dịch vụ mở rộng tùy chọn.
 
-### 6. Tự Động Xác Thực Khi Đăng Ký & Pre-flight Health Check Trước Khi Cào
+### 7. Tự Động Xác Thực Khi Đăng Ký & Pre-flight Health Check Trước Khi Cào
 * **Quyết định:** Đề bài yêu cầu *"Register and verify the database connection before use"* và *"Register and test a source"*. Thay vì luồng rời rạc bắt người dùng lưu nguồn ở trạng thái chưa kiểm tra rồi ra ngoài tìm thẻ để bấm kiểm tra, luồng đăng ký mới tự động ping kiểm tra kết nối ngay lập tức (`testConnection`) khi bấm lưu và gán trạng thái `VERIFIED` (`● Đã xác thực`) ngay từ đầu.
 * **Pre-flight Check:** Trước khi bất kỳ đợt cào dữ liệu nào diễn ra (`RunCollectionUseCase`), hệ thống tự động kiểm tra sức khỏe cổng kết nối. Nếu máy chủ nguồn bị đứt mạng, hệ thống ngắt ngay với mã lỗi `PREFLIGHT_CONNECTION_FAILED`, đánh dấu nguồn lỗi và bảo vệ đường ống dữ liệu khỏi các đợt cào bị treo/hỏng.
 * **Đánh đổi:** Tốn thêm một lượt ping siêu nhẹ (~10-25ms) trước khi cào, nhưng triệt tiêu $100\%$ nguy cơ phát sinh đợt cào thất bại do sai thông tin đăng nhập hoặc đứt mạng.
 
-### 7. Sắp Xếp Dòng Dữ Liệu 6 Trạm Tất Định & Cảnh Báo Thiếu Dữ Liệu Trực Quan
+### 8. Sắp Xếp Dòng Dữ Liệu 6 Trạm Tất Định & Cảnh Báo Thiếu Dữ Liệu Trực Quan
 * **Quyết định:** Trong bảng truy vết (`GetBatchProvenanceUseCase`), các công đoạn Canonical luôn được sắp xếp tăng dần theo cấp bậc trạm (từ Trạm 01 `RECEIVING` đến Trạm 06 `DISPATCH`), không bị đảo lộn theo thời gian ghi của database.
 * **Cảnh báo thiếu dữ liệu:** Tuân thủ đúng quy định đề bài (*"A later-station event may place a batch in progress even when an earlier event is missing, but the batch must display a missing-data indicator"*), khi phát hiện trạm trung gian bị khuyết dữ liệu (như Trạm 02 `SORTING` của `BATCH-003`), tab Truy Vết Nguồn Gốc hiển thị thẻ cảnh báo màu hổ phách: `⚠️ Thiếu Dữ Liệu (Missing Data Gap)` kèm lời giải thích minh bạch.
 * **Thanh thống kê đối soát:** Trang bị dải 4 chỉ số KPI ngay đầu tab Truy Vết: *Tiến Trình Trạm (4/6)*, *Đã Đối Soát (3/4)*, *Thiếu Dữ Liệu (1 trạm)* và *Tổng Bản Ghi Quan Sát Thô*.
 
-### 8. Tính Bất Biến Của Lô Hàng Đã Xuất Xưởng (Plant Manager Dispatch Invariance)
+### 9. Tính Bất Biến Của Lô Hàng Đã Xuất Xưởng (Plant Manager Dispatch Invariance)
 * **Quyết định:** Khi một lô hàng đã qua Trạm 6 (`DISPATCH`) và mang trạng thái `COMPLETED`, các use case nghiệp vụ ở Backend (`BlockBatchUseCase`, `ResumeBatchUseCase`) từ chối mọi thao tác tạm dừng hoặc chỉnh sửa với mã lỗi 409 Conflict, bảo toàn tính bất biến của sản phẩm đã rời xưởng.
 * **Nhật ký:** Quản đốc vẫn có thể ghi chú kiểm toán (Audit Note), nhưng lệnh khóa dừng vật lý bị cấm tuyệt đối trên lô hàng đã hoàn thành.
 
-### 9. Đồng Bộ Tự Động Ngầm 30 Giây & Lưu Vết Khử Trùng Lặp
+### 10. Đồng Bộ Tự Động Ngầm 30 Giây & Lưu Vết Khử Trùng Lặp
 * **Quyết định:** `AutoSyncSchedulerService` âm thầm quét các nguồn được kích hoạt mỗi 30 giây ở tầng Backend. Các bản ghi trùng lặp qua hàng trăm đợt quét được tự động gộp (Deduplicate) mà không làm nhân đôi số lượng khăn/ga, đồng thời được lưu vết kiểm toán minh bạch trong Provenance dưới dạng `"Đã quan sát N lần qua Auto-Sync (Đã deduplicate)"`.
 
 ---
@@ -122,42 +129,31 @@ docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-c
 
 ---
 
-## 🔬 Tóm Tắt Đo Kiểm Hiệu Năng: 128-Bit In-Memory Fingerprint vs Bloom Filter vs Truy Vấn Database
+## 🔬 Ghi Chú Benchmark Hiệu Năng
 
-Để giải quyết vấn đề nghẽn I/O khi cào tự động 30 giây (`Auto-Sync`) từ nhiều nguồn dữ liệu lớn mà không gặp rủi ro mất mát dữ liệu do dương tính giả của Bloom Filter, chúng tôi đã thiết kế và triển khai **Động cơ Dấu vân tay 128-bit trên RAM** (`FingerprintCacheService`).
-
-### Điểm Nhấn Đột Phá:
-* **Nhanh gấp 2.680 lần so với Database:** Xử lý 50.000 bản ghi chỉ mất **175.39 ms** (~285.000 ops/giây) so với 459 giây (~109 ops/giây) của truy vấn `SELECT` trực tiếp vào PostgreSQL.
-* **Độ chính xác 100% tuyệt đối:** 0% Dương tính giả với không gian định danh 2¹²⁸ (khoảng 3.4 × 10³⁸, tương đương chuẩn bảo mật Git và BigQuery).
-* **Triệt tiêu tải Database:** Lọc và phát hiện trùng lặp hoàn toàn trên RAM.
-
-![Biểu đồ đo kiểm hiệu năng](benchmark/benchmark_results_vi.png)
-
-👉 **[Xem Báo Cáo Đo Kiểm Hiệu Năng Chi Tiết & Bảng Phân Tích Đánh Đổi Toàn Diện](benchmark/README.vi.md)**
-*(Bao gồm tập dữ liệu JSON đo lường gốc, phương pháp luận, mã nguồn Python sinh biểu đồ và bộ Docker test runner).*
+Thư mục [`benchmark/`](benchmark/) được giữ lại như tài liệu nghiên cứu so sánh. Đường correctness production cố ý dùng lịch sử observation đã lưu thay vì `FingerprintCacheService`: persistence chậm hơn cache theo tiến trình nhưng tồn tại qua restart, hỗ trợ kiểm toán cross-run và không bị false negative khi cache mất.
 
 ---
 
-## 🧪 Chiến Lược Kiểm Thử 5 Giai Đoạn Toàn Diện (30 Tests, Pass 100%)
+## 🧪 Trạng Thái Build & Kiểm Thử Đã Xác Minh
 
-Hệ thống được bảo vệ bởi bộ kiểm thử tự động toàn diện tuân thủ nghiêm ngặt **Rule 60** và **Rule 80**, kiểm soát từng công đoạn vận hành qua 5 giai đoạn:
+Các lệnh sau đã được chạy trên working tree hiện tại:
 
-| Giai Đoạn | Phạm Vi Kiểm Thử & Các Bất Biến Nghiệp Vụ | Số Lượng Test | Tỷ Lệ Đạt |
-| :--- | :--- | :---: | :---: |
-| **Giai Đoạn 1: Thu Thập & Chịu Lỗi** | Chống lặp phân trang, cách ly dòng lỗi, retry 503, pre-flight ping, mã hóa AES-256 | 8 Tests | 100% |
-| **Giai Đoạn 2: Chuẩn Hóa & Khử Trùng Lặp** | Chuẩn hóa UTC, tie-breaker ưu tiên sản lượng > 0, khử trùng lặp, thứ bậc thẩm quyền nguồn | 4 Tests | 100% |
-| **Giai Đoạn 3: Trạng Thái Dây Chuyền 6 Trạm** | Ma trận ưu tiên (COMPLETED > BLOCKED > IN_PROGRESS), trạm xa nhất, không lùi trạm, khóa xuất xưởng | 8 Tests | 100% |
-| **Giai Đoạn 4: Điều Phối & Truy Vết Nguồn Gốc** | Nhật ký Append-only (BLOCK, RESUME, ACKNOWLEDGE, NOTE), sắp xếp tất định 1 ➔ 6, phát hiện thiếu trạm | 4 Tests | 100% |
-| **Giai Đoạn 5: Luồng Đầu Cuối & Docker Test** | Cào 3 nguồn dữ liệu, sinh bảng 3 dây chuyền, chuẩn hóa ngày tháng UTC, Docker Test Runner | 6 Tests | 100% |
-| **Tổng Số Test Tự Động** | **Bộ Unit & E2E Tests** | **30 Tests** | **100% Pass** |
+| Lệnh | Kết quả |
+| :--- | :--- |
+| `cd backend && npm run build` | Đạt |
+| `cd backend && npm test` | 7 unit suites, 30 tests đạt |
+| `cd frontend && npm run build` | Đạt với Next.js 16.3.4 / React 19 |
+| Docker Compose Test Runner | Đạt (30 unit tests + 3 tests tích hợp E2E, exit code 0) |
 
-### Cách Thực Thi Kiểm Thử:
+Bộ E2E dùng database được tách khỏi lệnh unit và không nuốt lỗi bootstrap. Chạy qua Docker runner cô lập:
+
 ```bash
-# Chạy toàn bộ test tại máy cục bộ qua Jest:
+# Unit suite nhanh, không phụ thuộc hạ tầng
 cd backend && npm test
 
-# Chạy kiểm thử cô lập trong Docker Test Runner:
+# E2E/database/full container verification
 docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
 ```
 
-👉 **[Xem Chi Tiết Tài Liệu Chiến Lược Kiểm Thử & Ma Trận Test Cases](docs/vi/testing-strategy.md)**
+Xem [`docs/vi/testing-strategy.md`](docs/vi/testing-strategy.md) để biết ma trận đã xác minh và các bước còn phụ thuộc môi trường.

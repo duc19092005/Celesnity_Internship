@@ -1,4 +1,4 @@
-﻿# Comprehensive Testing Strategy & Test Case Matrix
+# Comprehensive Testing Strategy & Test Case Matrix
 ## Factory Data & Production Line Platform
 
 This document outlines the entire testing strategy, architecture layers, and detailed 5-phase test case matrix for the Factory Data & Production Line Platform, strictly complying with **Rule 60** and **Rule 80**.
@@ -8,13 +8,13 @@ This document outlines the entire testing strategy, architecture layers, and det
 ## 1. Testing Philosophy & Architecture Layers
 
 The system adheres to the Testing Pyramid model with maximum domain isolation:
-1. **Domain & UseCase Unit Tests (Base Layer - 27 Test Cases)**:
-   - 100% isolated verification of core business rules: Deduplication, Conflict resolution, Furthest station rule, Late event invariance, State precedence, Append-only audit trail, and Pre-flight connection health checks.
-   - Ultra-fast execution (~10s), zero dependency on external infrastructure.
-2. **Integration & E2E Tests (Middle Layer - 3 Test Cases)**:
-   - End-to-end verification of actual data ingestion from fixtures: HTML Web Crawler, and REST API with transient 503 retry resilience.
+1. **Domain & UseCase Unit Tests (Base Layer - 30 Test Cases across 7 suites)**:
+   - 100% isolated verification of core business rules: Deduplication, Conflict resolution, Ingestion pipeline with metadata-only materialization and cross-run dedup, Furthest station rule, Late event invariance, State precedence, Append-only audit trail, and Pre-flight connection health checks.
+   - Ultra-fast execution (~9s), zero dependency on external databases.
+2. **Integration & E2E Tests (Middle Layer - 3 Integrated Scenarios)**:
+   - End-to-end multi-source workflow (`test/e2e/workflow.spec.ts`): Registers, discovers schema, selects data contracts, collects from all three sources (Crawler, PostgreSQL, REST), verifies cross-run deduplication and line/station projection.
 3. **Docker Compose Test Runner (Top Layer - CI/CD Container)**:
-   - Dedicated configuration file `infrastructure/docker-compose.test.yml` spins up a clean, isolated container environment with fresh test databases and executes the full test suite via:
+   - Dedicated configuration file `infrastructure/docker-compose.test.yml` spins up clean container environments with fresh test databases and executes `npm test && npm run test:e2e` via:
      ```bash
      docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
      ```

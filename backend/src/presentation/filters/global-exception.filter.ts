@@ -53,6 +53,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   }
 
   private redactSecrets(str: string): string {
-    return str.replace(/(password|secret|key|token)=([^\s&;]+)/gi, '$1=••••••••');
+    return str
+      .replace(/(postgres(?:ql)?:\/\/[^:\s/@]+:)([^@\s/]+)(@)/gi, '$1••••••••$3')
+      .replace(/(bearer\s+)[a-z0-9._~+\/-]+=*/gi, '$1••••••••')
+      .replace(/(["']?(?:password|secret|key|token|authorization|api[_-]?key|client[_-]?secret)["']?\s*[:=]\s*["']?)([^"'\s&,;}]+)/gi, '$1••••••••')
+      .replace(/((?:password|secret|key|token|authorization|api[_-]?key|client[_-]?secret)=)([^\s&;]+)/gi, '$1••••••••');
   }
 }

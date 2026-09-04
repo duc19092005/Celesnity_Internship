@@ -38,23 +38,20 @@ This document provides a detailed mapping of all Controllers, HTTP Endpoints, Re
 
 ### 1.5 `PUT /api/v1/sources/:sourceId/selection` (Save Selection)
 * **Invoked UseCase:** `SaveSourceSelectionUseCase`
-* **Business Logic:** Updates `selectedSchema` (e.g. selected table `production_events`).
+* **Business Logic:** Validates and persists a source-specific contract: PostgreSQL `selectedTable` plus optional `selectedColumns`; REST `resources`; crawler `headers`. Collection consumes only the saved selection and is rejected if none exists.
 
 ### 1.6 `POST /api/v1/sources/:sourceId/runs` (Trigger Manual Collection)
 * **Invoked UseCase:** `RunCollectionUseCase` $\rightarrow$ `IngestionPipelineService`
 * **Business Logic:**
-  1. **Pre-flight Health Check:** Performs an automated connection test prior to collection. If endpoint is down, halts immediately with `PREFLIGHT_CONNECTION_FAILED`, sets `status = ERROR`, and saves run as `FAILED`, protecting the pipeline.
-  2. Creates `CollectionRun` in `RUNNING` status.
-  3. Executes collector adapter to fetch raw items.
-  4. **Raw Observation Store:** Persists all raw observations into `source_observations` table (Append-only).
-  5. **Normalization:** Parses `workOrderId`, `batchId`, `station`, `quantity`, `occurredAt`, `qualityStatus`. Isolates malformed rows into run error logs without failing the collection run.
-  6. **Deduplication & Conflict Resolution (DeduplicationResolver):**
-     - Clusters records by `(batchId, station)`.
-     - Exact duplicates $\rightarrow$ marked `DUPLICATE` (does not multiply completed quantity).
-     - Conflicting records $\rightarrow$ marked `CONFLICT` (winner chosen deterministically by source authority and revision).
-     - Creates or updates `CanonicalEvent`.
-  7. **Production State Recalculation:** Re-evaluates furthest station and status for all affected batches.
-  8. Finalizes run duration, counters, and status (`SUCCEEDED` or `PARTIAL_SUCCESS`).
+  1. Requires a saved selection, then performs a pre-flight connection check. A failed check stops with `PREFLIGHT_CONNECTION_FAILED` and marks the source in error.
+  2. Creates `CollectionRun` in `RUNNING` status and executes the selected collector contract.
+  3. **Raw Observation Store:** Persists every fetched item in `source_observations` (append-only).
+  4. **REST metadata materialization:** Upserts `/work-orders` and `/batches` into their metadata tables without creating canonical station events; a metadata-only batch remains `PLANNED`.
+  5. **Operational normalization:** Parses `workOrderId`, required `batchId`, station, quantity, timestamp and quality. Malformed records are isolated and retained for audit.
+  6. **Persisted Observation Identity:** Compares `(organizationId, sourceId, sourceRecordId, sourceRevision)` against existing normalized history. Same semantic business payload is `DUPLICATE`; changed payload is `CONFLICT`. Transport fields are excluded from semantic comparison.
+  7. **Canonical Slot Arbitration:** Different observation identities in `(organizationId, batchId, station)` are deterministic candidates. Source authority, revision, occurrence time and stable source/record identity select one accepted winner; losers are `CONFLICT`, not exact duplicates.
+  8. Creates or updates the single `CanonicalEvent`, recomputes full duplicate/conflict counts, and persists any demoted historical winner.
+  9. Finalizes run-scoped counts and status (`SUCCEEDED`, `PARTIAL_SUCCESS`, or `FAILED`).
 
 ### 1.7 `PATCH /api/v1/sources/:sourceId/auto-sync` (Configure Auto-Sync)
 * **Invoked UseCase:** `ConfigureAutoSyncUseCase`

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 
@@ -38,7 +39,8 @@ import { MosquittoMqttAdapter } from './infrastructure/collectors/mosquitto-mqtt
 import { DatabaseSeederService } from './infrastructure/persistence/seeder/database-seeder.service';
 import { AutoSyncSchedulerService } from './infrastructure/scheduling/auto-sync-scheduler.service';
 import { IngestionPipelineService } from './application/services/ingestion-pipeline.service';
-import { FingerprintCacheService } from './infrastructure/cache/fingerprint-cache.service';
+import { GlobalExceptionFilter } from './presentation/filters/global-exception.filter';
+import { LoggingAndRedactionInterceptor } from './presentation/interceptors/logging-and-redaction.interceptor';
 
 // Use Cases
 import { RegisterSourceUseCase } from './application/use-cases/sources/register-source.use-case';
@@ -96,7 +98,7 @@ const encryptionService = new Aes256EncryptionService();
       host: process.env.PLATFORM_DB_HOST || 'localhost',
       port: Number(process.env.PLATFORM_DB_PORT || 5432),
       username: process.env.PLATFORM_DB_USER || 'postgres',
-      password: process.env.PLATFORM_DB_PASSWORD || 'postgres',
+      password: process.env.PLATFORM_DB_PASSWORD || (process.env.NODE_ENV === 'test' ? undefined : (() => { throw new Error('PLATFORM_DB_PASSWORD is required'); })()),
       database: process.env.PLATFORM_DB_NAME || 'platform_db',
       entities: [
         SourceOrmEntity,
@@ -148,9 +150,6 @@ const encryptionService = new Aes256EncryptionService();
     DatabaseSeederService,
     AutoSyncSchedulerService,
 
-    // Cache & Acceleration Services
-    FingerprintCacheService,
-
     // Ingestion Pipeline Service
     {
       provide: IngestionPipelineService,
@@ -160,15 +159,17 @@ const encryptionService = new Aes256EncryptionService();
         obsRepo: TypeOrmSourceObservationRepository,
         normRepo: TypeOrmNormalizedRecordRepository,
         canonRepo: TypeOrmCanonicalEventRepository,
-        fingerprintCache: FingerprintCacheService,
-      ) => new IngestionPipelineService(sourceRepo, runRepo, obsRepo, normRepo, canonRepo, fingerprintCache),
+        batchRepo: TypeOrmBatchRepository,
+        workOrderRepo: TypeOrmWorkOrderRepository,
+      ) => new IngestionPipelineService(sourceRepo, runRepo, obsRepo, normRepo, canonRepo, batchRepo, workOrderRepo),
       inject: [
         TypeOrmSourceRepository,
         TypeOrmCollectionRunRepository,
         TypeOrmSourceObservationRepository,
         TypeOrmNormalizedRecordRepository,
         TypeOrmCanonicalEventRepository,
-        FingerprintCacheService,
+        TypeOrmBatchRepository,
+        TypeOrmWorkOrderRepository,
       ],
     },
 
@@ -319,6 +320,14 @@ const encryptionService = new Aes256EncryptionService();
       provide: UpdateStaleThresholdUseCase,
       useFactory: (settingsRepo: TypeOrmSystemSettingsRepository) => new UpdateStaleThresholdUseCase(settingsRepo),
       inject: [TypeOrmSystemSettingsRepository],
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingAndRedactionInterceptor,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: GlobalExceptionFilter,
     },
   ],
 })

@@ -24,6 +24,9 @@ export class RunCollectionUseCase {
     if (!adapter) {
       throw new AdapterNotFoundException(source.type);
     }
+    if (!source.selectedSchema || Object.keys(source.selectedSchema).length === 0) {
+      throw new Error(`Source ${sourceId} has no saved collection selection`);
+    }
 
     const runId = `run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const run = new CollectionRun(runId, organizationId, source.id, CollectionRunStatus.RUNNING);
