@@ -119,13 +119,17 @@ Here is our documented design rationale:
 
 ### 1. Start Full Application (All Services + UI):
 ```bash
-docker compose -f infrastructure/docker-compose.yml up --build
+# 1. Create your local untracked .env file from the template:
+cp .env.example .env
+
+# 2. Start all services:
+docker compose --env-file .env -f infrastructure/docker-compose.yml up --build
 ```
 * **Frontend Web App:** [http://localhost:3000](http://localhost:3000)
 * **Backend REST API:** [http://localhost:4000](http://localhost:4000)
 * **Supplier Portal HTML Fixture:** [http://localhost:4000/fixtures/supplier/deliveries](http://localhost:4000/fixtures/supplier/deliveries)
 
-### 2. Run Automated Backend Tests in Isolation (No Frontend, No MQTT required):
+### 2. Run Automated Backend Tests in Isolation (No .env required, No Frontend, No MQTT):
 ```bash
 docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
 ```

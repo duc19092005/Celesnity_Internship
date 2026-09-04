@@ -116,13 +116,17 @@ Nền tảng vận hành tập trung cho xưởng giặt ủi công nghiệp gi�
 
 ### 1. Khởi động Toàn bộ Hệ thống:
 ```bash
-docker compose -f infrastructure/docker-compose.yml up --build
+# 1. Tạo file cấu hình môi trường cục bộ từ file mẫu:
+cp .env.example .env
+
+# 2. Khởi chạy toàn bộ services:
+docker compose --env-file .env -f infrastructure/docker-compose.yml up --build
 ```
 * **Frontend:** `http://localhost:3000`
 * **Backend API:** `http://localhost:4000`
 * **Supplier Portal HTML:** `http://localhost:4000/fixtures/supplier/deliveries`
 
-### 2. Chạy Bộ Kiểm Thử Độc Lập (Không bật Frontend, Không cần MQTT):
+### 2. Chạy Bộ Kiểm Thử Độc Lập (Không cần file .env, Không bật Frontend, Không cần MQTT):
 ```bash
 docker compose -f infrastructure/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
 ```
